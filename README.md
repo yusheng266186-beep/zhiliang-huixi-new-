@@ -43,3 +43,7 @@ npm run test:analytics -- "/path/to/质量复盘.xlsx"
 ```
 
 真实工作簿验收基准：7,255 条成绩、11 次考试、19 条分数线、16,047 条小题答题记录；解析、容错和分析脚本会对这些结果以及插入空列、改名、缺失学科、缺失总分和缺失小题表的变体进行断言。
+
+## GitHub Pages
+
+仓库内置 `.github/workflows/pages.yml`。每次推送到 `main` 时，GitHub Actions 会先执行 `npm ci` 和 `npm run build:pages`，再把浏览器端静态构建发布到 GitHub Pages。Pages 版本在浏览器本地完成 Excel 解析、图表和 Word/PDF/Excel 导出，不依赖服务器端数据库。
