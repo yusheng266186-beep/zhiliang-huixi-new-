@@ -29,6 +29,10 @@ jobs:
         run: npm ci
       - name: Build browser-only Pages bundle
         run: npm run build:pages
+      - name: Flatten Pages entrypoint
+        run: |
+          cp pages-dist/pages-static/index.html pages-dist/index.html
+          rm -rf pages-dist/pages-static
       - name: Configure Pages
         uses: actions/configure-pages@v5
         with:
