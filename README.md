@@ -47,3 +47,5 @@ npm run test:analytics -- "/path/to/质量复盘.xlsx"
 ## GitHub Pages
 
 仓库内置 `.github/workflows/pages.yml`。每次推送到 `main` 时，GitHub Actions 会先执行 `npm ci` 和 `npm run build:pages`，再把浏览器端静态构建发布到 GitHub Pages。Pages 版本在浏览器本地完成 Excel 解析、图表和 Word/PDF/Excel 导出，不依赖服务器端数据库。
+
+Pages 发布源已配置为 GitHub Actions，发布完成后可从仓库的 Settings → Pages 查看访问地址。
