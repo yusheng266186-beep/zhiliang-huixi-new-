@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   AlertTriangle,
@@ -151,7 +151,7 @@ function SelectMenu({ value, options, onChange, ariaLabel, className = "" }: { v
   const popupRef = useRef<HTMLDivElement>(null);
   const selected = options.find((option) => option.value === value) ?? options[0];
 
-  const updatePopupPosition = () => {
+  const updatePopupPosition = useCallback(() => {
     const rect = triggerRef.current?.getBoundingClientRect();
     if (!rect) return;
     const preferredHeight = Math.min(280, options.length * 45 + 12);
@@ -163,7 +163,7 @@ function SelectMenu({ value, options, onChange, ariaLabel, className = "" }: { v
       width: Math.max(rect.width, 176),
       maxHeight: Math.max(120, Math.min(280, openAbove ? rect.top - 24 : window.innerHeight - rect.bottom - 24)),
     });
-  };
+  }, [options.length]);
 
   useEffect(() => {
     if (!open) return;
@@ -182,7 +182,7 @@ function SelectMenu({ value, options, onChange, ariaLabel, className = "" }: { v
       window.removeEventListener("resize", closeOnResize);
       window.removeEventListener("scroll", repositionOnScroll, true);
     };
-  }, [open, options.length]);
+  }, [open, updatePopupPosition]);
 
   const focusOption = (index: number) => {
     const buttons = popupRef.current?.querySelectorAll<HTMLButtonElement>("[role='option']");
