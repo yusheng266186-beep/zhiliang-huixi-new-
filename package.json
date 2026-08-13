@@ -1,6 +1,6 @@
 {
   "name": "grade-quality-insight",
-  "version": "0.1.0",
+  "version": "2.0.0",
   "private": true,
   "engines": {
     "node": ">=22.13.0"
@@ -12,13 +12,16 @@
     "start": "vinext start",
     "test": "npm run build && node --test tests/rendered-html.test.mjs",
     "test:parser": "node --import tsx scripts/verify-parser.ts",
+    "test:import-review": "node --import tsx scripts/verify-import-review.ts",
     "test:analytics": "node --import tsx scripts/verify-analytics.ts",
-    "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
+    "test:exports": "node --import tsx scripts/verify-exports.ts",
+    "lint": "eslint . --ignore-pattern dist --ignore-pattern pages-dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate"
   },
   "dependencies": {
     "docx": "^9.7.1",
     "drizzle-orm": "0.45.2",
+    "exceljs": "^4.4.0",
     "html2canvas": "^1.4.1",
     "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.8",

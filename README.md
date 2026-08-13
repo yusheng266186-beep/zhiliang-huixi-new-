@@ -1,6 +1,6 @@
 # 质量慧析 · 考试质量分析系统
 
-面向荣县一中高2024级的本地考试质量分析系统。导入质量复盘 Excel 后，可以从年级、考试、类别、班级、学科和学生多个层次进行分析，并导出可交付的 Word、PDF 和 Excel 报告。
+本地优先的考试质量分析系统。导入质量复盘 Excel 后，可以从年级、考试、类别、班级、学科和学生多个层次进行分析，并导出可交付的 Word、PDF 和 Excel 报告。
 
 > 在线 Pages：[打开质量慧析](https://yusheng266186-beep.github.io/zhiliang-huixi-new-/)  
 > GitHub：[查看源代码](https://github.com/yusheng266186-beep/zhiliang-huixi-new-)
@@ -21,7 +21,7 @@ Pages 版本在浏览器本地解析 Excel、生成图表和导出文件，不�
 
 ## 主要功能
 
-### 年级驾驶舱
+### 考试质量总览
 
 - 年级总成绩；
 - 一本、本科上线人数和上线率；
@@ -65,8 +65,10 @@ Pages 版本在浏览器本地解析 Excel、生成图表和导出文件，不�
 ### 数据健康与容错
 
 - 语义表头识别；
-- 字段映射提示；
-- 自动去重；
+- 导入前确认学校、考试、班级、学生数和字段映射；
+- 学号存在时优先作为稳定身份，无学号时明确提示降级口径；
+- 重复记录显示原始行号，并允许保留首行、末行或全部记录；
+- 重构总分由用户明确确认后才纳入；
 - 缺失字段降级；
 - 缺失总分时按规则重建；
 - 损坏文件和不完整工作簿保护；
@@ -112,9 +114,10 @@ Pages 版本在浏览器本地解析 Excel、生成图表和导出文件，不�
 
     npm run build
     npm run lint
-    npm run test
-    npm run test:parser -- "/path/to/质量复盘.xlsx"
-    npm run test:analytics -- "/path/to/质量复盘.xlsx"
+npm run test
+npm run test:parser -- "/path/to/质量复盘.xlsx"
+npm run test:import-review -- "/path/to/质量复盘.xlsx"
+npm run test:analytics -- "/path/to/质量复盘.xlsx"
 
 说明：
 
@@ -122,6 +125,7 @@ Pages 版本在浏览器本地解析 Excel、生成图表和导出文件，不�
 - lint：检查代码质量；
 - test：构建并运行渲染 HTML 测试；
 - test:parser：验证工作簿解析、字段映射和容错；
+- test:import-review：验证导入确认、重复策略、学号覆盖和重构总分开关；
 - test:analytics：验证统计分析和指标结果。
 
 真实工作簿验收基准为：

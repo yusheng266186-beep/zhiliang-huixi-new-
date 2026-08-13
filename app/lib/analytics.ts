@@ -40,7 +40,7 @@ export const classSummaries = (dataset: GradeDataset, exam: string, track: Track
   const groups = new Map<number, StudentScore[]>();
   filterScores(dataset, exam, track).forEach((score) => groups.set(score.classNo, [...(groups.get(score.classNo) ?? []), score]));
   return [...groups.entries()].sort((a, b) => a[0] - b[0]).map(([classNo, students]) => {
-    const profile = getClassProfile(classNo), threshold = getThreshold(dataset, exam, profile.track);
+    const profile = getClassProfile(classNo, exam, dataset.classProfiles), threshold = getThreshold(dataset, exam, profile.track);
     const topLine = threshold?.topTotal, undergraduateLine = threshold?.undergraduateTotal;
     const topCount = typeof topLine === "number" ? students.filter((student) => student.total >= topLine).length : 0;
     const undergraduateCount = typeof undergraduateLine === "number" ? students.filter((student) => student.total >= undergraduateLine).length : 0;
@@ -77,7 +77,7 @@ export const criticalStudents = (dataset: GradeDataset, exam: string, track: Tra
   const threshold = getThreshold(dataset, exam, student.track);
   const topDiff = threshold?.topTotal === null || threshold?.topTotal === undefined ? null : student.total - threshold.topTotal;
   const undergraduateDiff = threshold?.undergraduateTotal === null || threshold?.undergraduateTotal === undefined ? null : student.total - threshold.undergraduateTotal;
-  const relevant = relevantSubjects(getClassProfile(student.classNo));
+  const relevant = relevantSubjects(getClassProfile(student.classNo, student.rawExam, dataset.classProfiles));
   const subjectDiffs = (tier: "一本" | "本科") => relevant.map((subject) => { const score = student.subjects[subject], line = tier === "一本" ? threshold?.topSubjects[subject] : threshold?.undergraduateSubjects[subject]; return typeof score === "number" && typeof line === "number" ? { subject, diff: score - line } : null; }).filter((item): item is { subject: SubjectName; diff: number } => Boolean(item)).sort((a, b) => a.diff - b.diff);
   const criticalTiers: Array<"一本" | "本科"> = [];
   if (topDiff !== null && topDiff >= -20 && topDiff < 0) criticalTiers.push("一本");
@@ -110,7 +110,11 @@ export const buildExecutiveInsights = (dataset: GradeDataset, exam: string, trac
   const insights: ExecutiveInsight[] = [{ id: "distribution", tone: stats.standardDeviation > 105 ? "attention" : "neutral", title: "成绩离散度", finding: `中位数${stats.median.toFixed(1)}分，四分位区间${stats.p25.toFixed(1)}–${stats.p75.toFixed(1)}分，标准差${stats.standardDeviation.toFixed(1)}。`, action: stats.standardDeviation > 105 ? "分层差异较大，备课与作业应至少拆分为基础、提升两套任务。" : "整体离散度可控，继续关注尾部学生与局部学科波动。" }, { id: "conversion", tone: topCritical + undergraduateCritical > rows.length * .08 ? "warn" : "good", title: "临界转化机会", finding: `一本临界${topCritical}人，本科临界${undergraduateCritical}人；当前最大分层为“${largestSegment?.label ?? "待识别"}”。`, action: topCritical + undergraduateCritical ? "按总分差距与薄弱学科交叉排序，先干预线下10分以内学生。" : "当前未发现线下20分临界生，重点转向上线稳定性与高分拔尖。" }];
   if (weakest) insights.push({ id: "subject", tone: weakest.undergraduateEffectiveRate < .55 ? "attention" : "warn", title: "学科短板", finding: `${weakest.subject}本科有效率${(weakest.undergraduateEffectiveRate * 100).toFixed(1)}%，在当前可比学科中最低。`, action: "下钻小题与知识点，优先处理低得分率且覆盖人数高的共性问题。" });
   if (classNo === "全部") { const benchmarks = classBenchmarks(dataset, exam, track), strongest = [...benchmarks].sort((a, b) => b.averageDelta - a.averageDelta)[0], weakestClass = [...benchmarks].sort((a, b) => a.averageDelta - b.averageDelta)[0]; if (strongest && weakestClass) insights.push({ id: "class", tone: Math.abs(weakestClass.averageDelta) >= 15 ? "attention" : "neutral", title: "同类班级差异", finding: `${strongest.classNo}班较同组均分高${Math.abs(strongest.averageDelta).toFixed(1)}分；${weakestClass.classNo}班较同组均分${weakestClass.averageDelta >= 0 ? "高" : "低"}${Math.abs(weakestClass.averageDelta).toFixed(1)}分。`, action: "优先在相同类别与班型内复盘教学差异，避免直接跨层次比较。" }); }
-  if (previousRows.length) { const delta = stats.average - average(previousRows.map((row) => row.total)); insights.push({ id: "trend", tone: delta >= 0 ? "good" : "warn", title: "阶段变化", finding: `较${previousExam}平均分${delta >= 0 ? "提高" : "下降"}${Math.abs(delta).toFixed(1)}分。`, action: delta >= 0 ? "保留有效教学动作，并检查提升是否覆盖各分层。" : "结合班级、学科和小题三个层级定位下降来源。" }); }
+  if (previousRows.length) {
+    const rateFor = (examName: string, examRows: StudentScore[]) => examRows.length ? examRows.filter((row) => { const line = getThreshold(dataset, examName, row.track)?.topTotal; return typeof line === "number" && row.total >= line; }).length / examRows.length : 0;
+    const currentRate = rateFor(exam, rows), previousRate = rateFor(previousExam!, previousRows), delta = (currentRate - previousRate) * 100;
+    insights.push({ id: "trend", tone: delta >= 0 ? "good" : "warn", title: "阶段变化", finding: `较${previousExam}一本上线率${delta >= 0 ? "提高" : "下降"}${Math.abs(delta).toFixed(1)}个百分点（${previousRows.length}人→${rows.length}人）。`, action: delta >= 0 ? "保留有效教学动作，并检查提升是否覆盖各分层。" : "结合班级、学科和小题三个层级定位下降来源；不同总分尺度的考试不直接比较原始均分。" });
+  }
   insights.push({ id: "quality", tone: (dataset.profile?.overallConfidence ?? 0) >= .9 ? "good" : "warn", title: "结论可信度", finding: `当前工作簿综合识别置信度${((dataset.profile?.overallConfidence ?? 0) * 100).toFixed(1)}%。`, action: (dataset.profile?.overallConfidence ?? 0) >= .9 ? "核心结论可直接用于复盘，缺失模块仍以质检提示为准。" : "引用结论时同时查看数据健康度，避免扩展到缺失字段。" });
   return insights;
 };

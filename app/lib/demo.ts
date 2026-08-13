@@ -93,5 +93,20 @@ export function createDemoDataset(): GradeDataset {
     itemResponses,
     issues: [{ level: "info", message: "当前显示匿名示例数据，导入工作簿后将自动替换。" }],
     sheets: ["学生基础", "教师名单", "语文", "数学", "英语", "物理", "历史"],
+    classProfiles: CLASS_PROFILES,
+    profile: {
+      overallConfidence: 1,
+      scoreHeaderRow: 0,
+      subjectCompleteness: 1,
+      thresholdCompleteness: 1,
+      itemCoverage: 1,
+      reconstructedTotals: 0,
+      skippedRows: 0,
+      fieldMatches: ["考试", "学校", "班级", "姓名", "总分", "语文", "数学", "英语"].map((field, column) => ({ field, column, header: field, strategy: "semantic" as const, confidence: 1 })),
+      capabilities: [
+        ["overview", "总分总览"], ["classes", "班级对比"], ["subjects", "学科诊断"], ["students", "学生画像"],
+        ["online", "上线临界"], ["items", "小题知识点"], ["history", "历次趋势"], ["reports", "报告导出"],
+      ].map(([id, label]) => ({ id: id as "overview" | "classes" | "subjects" | "students" | "online" | "items" | "history" | "reports", label, available: true, confidence: 1, reason: "匿名示例字段完整" })),
+    },
   };
 }

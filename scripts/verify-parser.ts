@@ -2,7 +2,8 @@ import { readFile } from "node:fs/promises";
 import * as XLSX from "xlsx";
 import { parseGradeWorkbook } from "../app/lib/parser";
 
-const input = process.argv[2] ?? "/workspace/scratch/6b70ba3345f8/recovered/高2024级4册质量复盘1（小题得分）2025.7.16 (1).xlsx";
+const input = process.argv[2];
+if (!input) throw new Error("请提供验收工作簿路径");
 const buffer = await readFile(input);
 
 const asFile = (workbook: XLSX.WorkBook, name: string) => {

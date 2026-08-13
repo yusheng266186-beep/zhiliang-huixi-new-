@@ -3,7 +3,8 @@ import { parseGradeWorkbook } from "../app/lib/parser";
 import { buildExecutiveInsights, classBenchmarks, descriptiveStats, distributionBins, filterScores, knowledgeSummaries, segmentSummary, subjectSummaries } from "../app/lib/analytics";
 import { buildQualityReport } from "../app/lib/report-model";
 
-const input = process.argv[2] ?? "/workspace/scratch/6b70ba3345f8/recovered/高2024级4册质量复盘1（小题得分）2025.7.16 (1).xlsx";
+const input = process.argv[2];
+if (!input) throw new Error("请提供验收工作簿路径");
 const bytes = await readFile(input);
 const dataset = await parseGradeWorkbook(new File([bytes], "analytics.xlsx"));
 const exam = dataset.exams.includes("4册") ? "4册" : dataset.exams.at(-1)!;
