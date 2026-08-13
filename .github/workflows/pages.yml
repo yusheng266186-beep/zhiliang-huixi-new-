@@ -18,22 +18,41 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout legacy source
         uses: actions/checkout@v4
+        with:
+          path: legacy
+      - name: Checkout v2 source
+        uses: actions/checkout@v4
+        with:
+          ref: agent/v2-ui-release
+          path: v2-source
       - name: Use Node.js 22
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-      - name: Install dependencies
-        run: npm ci
-      - name: Build browser-only Pages bundle
-        run: npm run build:pages
-      - name: Flatten Pages entrypoint
+      - name: Build legacy site
+        working-directory: legacy
         run: |
+          npm ci
+          npm run build:pages
           cp pages-dist/pages-static/index.html pages-dist/index.html
           sed -i 's|\.\./assets/|./assets/|g' pages-dist/index.html
           rm -rf pages-dist/pages-static
+      - name: Build v2 site
+        working-directory: v2-source
+        run: |
+          npm ci
+          npm run build:pages
+          cp pages-dist/pages-static/index.html pages-dist/index.html
+          sed -i 's|\.\./assets/|./assets/|g' pages-dist/index.html
+          rm -rf pages-dist/pages-static
+      - name: Compose versioned Pages artifact
+        run: |
+          mkdir -p pages-artifact/v2
+          cp -a legacy/pages-dist/. pages-artifact/
+          cp -a v2-source/pages-dist/. pages-artifact/v2/
+          touch pages-artifact/.nojekyll
       - name: Configure Pages
         uses: actions/configure-pages@v5
         with:
@@ -41,7 +60,7 @@ jobs:
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: pages-dist
+          path: pages-artifact
 
   deploy:
     environment:
