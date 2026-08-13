@@ -23,14 +23,15 @@ async function render() {
   );
 }
 
-test("server-renders the quality insight dashboard", async () => {
+test("server-renders the quality insight workspace", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
   assert.match(html, /<title>质量慧析｜高中考试质量分析系统<\/title>/);
-  assert.match(html, /年级驾驶舱/);
+  assert.match(html, /考试质量总览/);
+  assert.doesNotMatch(html, /年级驾驶舱|质量驾驶舱/);
   assert.match(html, /导入Excel/);
   assert.match(html, /一本/);
   assert.match(html, /本科/);
@@ -50,7 +51,8 @@ test("keeps privacy, export, accessibility, and visual semantics in the product 
   assert.match(page, /saveLatestDataset/);
   assert.match(page, /导出Word/);
   assert.match(page, /导出PDF/);
-  assert.match(page, /TIER_COLORS/);
+  assert.match(page, /VISUAL_COLORS/);
+  assert.match(page, /SEGMENT_COLORS/);
   assert.match(layout, /质量慧析｜高中考试质量分析系统/);
   assert.match(layout, /\/og\.png/);
   assert.match(layout, /\/favicon\.svg/);

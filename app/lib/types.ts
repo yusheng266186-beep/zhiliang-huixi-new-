@@ -18,6 +18,8 @@ export type ClassProfile = {
   combination: string;
   type: string;
   label: string;
+  language?: "英语" | "日语";
+  subjectSourceOverrides?: Partial<Record<SubjectName, SubjectName>>;
 };
 
 export type StudentScore = {
@@ -25,7 +27,10 @@ export type StudentScore = {
   rawExam: string;
   school: string;
   classNo: number;
+  studentId?: string | null;
   name: string;
+  identityKey?: string;
+  sourceRow?: number;
   track: Track;
   classType: string;
   combination: string;
@@ -65,8 +70,48 @@ export type ImportIssue = {
   level: "error" | "warning" | "info";
   message: string;
   module?: "成绩" | "分数线" | "小题" | "系统";
+  code?: "missing-identity" | "missing-student-id" | "missing-total" | "reconstructed-total" | "duplicate-record" | "duplicate-name" | "multiple-schools" | "out-of-range";
   affectedCount?: number;
+  rowNumbers?: number[];
   suggestion?: string;
+};
+
+export type DuplicateStrategy = "keep-all" | "keep-first" | "keep-last";
+
+export type GradeImportOptions = {
+  /** null 表示保留所有学校；省略时选择记录数最多的学校并等待用户确认。 */
+  school?: string | null;
+  includeReconstructedTotals?: boolean;
+  duplicateStrategy?: DuplicateStrategy;
+  /** 可选的班级规则覆盖；用于让后续导入复用当前学校的班型与选科口径。 */
+  classProfiles?: Record<number, ClassProfile>;
+};
+
+export type DuplicateConflict = {
+  exam: string;
+  classNo: number;
+  rowNumbers: number[];
+  conflictingFields: string[];
+};
+
+export type ImportReview = {
+  candidateRows: number;
+  retainedRows: number;
+  detectedSchools: Array<{ school: string; rowCount: number; studentCount: number }>;
+  selectedSchool: string | null;
+  studentCount: number;
+  classCount: number;
+  idRows: number;
+  identityCoverage: number;
+  duplicateGroups: number;
+  duplicateRows: number;
+  duplicateConflicts: DuplicateConflict[];
+  sameNameGroups: number;
+  reconstructedTotals: number;
+  skippedRows: number;
+  excludedSchoolRows: number;
+  excludedReconstructedRows: number;
+  deduplicatedRows: number;
 };
 
 export type DataCapability = {
@@ -109,7 +154,14 @@ export type GradeDataset = {
   itemResponses: ItemResponse[];
   issues: ImportIssue[];
   sheets: string[];
+  /** 当前学校可编辑的班级、类别与选科规则。 */
+  classProfiles?: Record<number, ClassProfile>;
   profile?: DataProfile;
+  importReview?: ImportReview;
+  /** 仅用于导入确认阶段；确认后会移除，不写入浏览器存储。 */
+  importCandidates?: StudentScore[];
+  /** 导入确认阶段保留完整分数线候选，确认后移除。 */
+  importThresholds?: Threshold[];
 };
 
 export type ClassSummary = {

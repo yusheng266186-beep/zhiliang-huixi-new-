@@ -7,9 +7,9 @@ export const CLASS_PROFILES: Record<number, ClassProfile> = {
   4: { classNo: 4, track: "物理类", combination: "物化生", type: "平行班", label: "4班 · 物化生平行班" },
   5: { classNo: 5, track: "物理类", combination: "物化生", type: "平行班", label: "5班 · 物化生平行班" },
   6: { classNo: 6, track: "物理类", combination: "物化生", type: "平行班", label: "6班 · 物化生平行班" },
-  7: { classNo: 7, track: "物理类", combination: "物化生", type: "日语平行班", label: "7班 · 物化生日语平行班" },
+  7: { classNo: 7, track: "物理类", combination: "物化生", type: "日语平行班", label: "7班 · 物化生日语平行班", language: "日语", subjectSourceOverrides: { 日语: "英语" } },
   8: { classNo: 8, track: "物理类", combination: "物化生", type: "平行班", label: "8班 · 物化生平行班" },
-  9: { classNo: 9, track: "物理类", combination: "物化地", type: "平行班", label: "9班 · 物化地平行班" },
+  9: { classNo: 9, track: "物理类", combination: "物化地", type: "平行班", label: "9班 · 物化地平行班", subjectSourceOverrides: { 地理: "生物" } },
   10: { classNo: 10, track: "历史类", combination: "历政地", type: "直播班", label: "10班 · 历政地直播班" },
   11: { classNo: 11, track: "历史类", combination: "历政地", type: "平行班", label: "11班 · 历政地平行班" },
   12: { classNo: 12, track: "历史类", combination: "历政地", type: "平行班", label: "12班 · 历政地平行班" },
@@ -23,8 +23,8 @@ export const ALL_SUBJECTS: SubjectName[] = [
   "语文", "数学", "英语", "日语", "物理", "历史", "化学", "生物", "政治", "地理",
 ];
 
-export const getClassProfile = (classNo: number, exam = ""): ClassProfile => {
-  if (CLASS_PROFILES[classNo]) return CLASS_PROFILES[classNo];
+export const getClassProfile = (classNo: number, exam = "", profiles: Record<number, ClassProfile> = CLASS_PROFILES): ClassProfile => {
+  if (profiles[classNo]) return profiles[classNo];
   const track: Track = exam.includes("历") ? "历史类" : exam.includes("物") ? "物理类" : "未配置";
   return {
     classNo,
@@ -36,7 +36,7 @@ export const getClassProfile = (classNo: number, exam = ""): ClassProfile => {
 };
 
 export const relevantSubjects = (profile: ClassProfile): SubjectName[] => {
-  const language: SubjectName = profile.classNo === 7 ? "日语" : "英语";
+  const language: SubjectName = profile.language ?? (profile.classNo === 7 ? "日语" : "英语");
   if (profile.combination === "物化生") return ["语文", "数学", language, "物理", "化学", "生物"];
   if (profile.combination === "物化地") return ["语文", "数学", language, "物理", "化学", "地理"];
   if (profile.combination === "历政地") return ["语文", "数学", language, "历史", "政治", "地理"];
@@ -47,4 +47,3 @@ export const normalizeExam = (value: unknown): string => {
   const raw = String(value ?? "").trim();
   return raw.replace(/[物历]$/, "").trim();
 };
-
