@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, memo, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   ArrowUpRight,
@@ -31,23 +31,18 @@ import {
   UsersRound,
   X,
 } from "lucide-react";
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Cell,
-  Legend,
-  Line,
-  LineChart,
-  ReferenceLine,
-  Pie,
-  PieChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
 import { CLASS_PROFILES, getClassProfile, relevantSubjects } from "./lib/class-config";
+// 图表懒加载：recharts 约 350KB(min)，首次切到含图表的视图才加载（见 components/charts.tsx）。
+const DistributionChart = lazy(() => import("./components/charts").then((m) => ({ default: m.DistributionChart })));
+const RateBarsChart = lazy(() => import("./components/charts").then((m) => ({ default: m.RateBarsChart })));
+const TrackPieChart = lazy(() => import("./components/charts").then((m) => ({ default: m.TrackPieChart })));
+const ClassCompareChart = lazy(() => import("./components/charts").then((m) => ({ default: m.ClassCompareChart })));
+const SubjectClassChart = lazy(() => import("./components/charts").then((m) => ({ default: m.SubjectClassChart })));
+const HistoryLineChart = lazy(() => import("./components/charts").then((m) => ({ default: m.HistoryLineChart })));
+const SubjectDiagnosisChart = lazy(() => import("./components/charts").then((m) => ({ default: m.SubjectDiagnosisChart })));
+const ItemRateChart = lazy(() => import("./components/charts").then((m) => ({ default: m.ItemRateChart })));
+const GradeTrendChart = lazy(() => import("./components/charts").then((m) => ({ default: m.GradeTrendChart })));
+const chartFallback = <div className="empty-state"><p>图表加载中…</p></div>;
 import { average, buildExecutiveInsights, classBenchmarks, classSummaries, criticalStudents, descriptiveStats, distributionBins, filterScores, getThreshold, knowledgeSummaries, segmentSummary, subjectSummaries } from "./lib/analytics";
 import { createDemoDataset } from "./lib/demo";
 import { exportAnalysisExcel, exportElementPdf, exportReportWord } from "./lib/exporters";
@@ -73,9 +68,6 @@ const navItems: Array<{ id: ViewId; label: string; icon: typeof LayoutDashboard;
   { id: "settings", label: "规则与班型", icon: Settings, group: "输出与设置" },
 ];
 
-const TIER_COLORS = { top: "#F59E0B", undergraduate: "#10B981", neutral: "#A1A1AA" } as const;
-const CHART_COLORS = { primary: "#5B5BD6", secondary: "#8B5CF6", grid: "#E7E7EC", cursor: "rgba(91,91,214,.055)" } as const;
-const COLORS = [TIER_COLORS.top, TIER_COLORS.undergraduate, TIER_COLORS.neutral, CHART_COLORS.primary, CHART_COLORS.secondary];
 const SEGMENT_COLORS: Record<string, string> = { high: "#5B5BD6", top: "#7C73E6", "top-critical": "#F59E0B", undergraduate: "#10B981", "undergraduate-critical": "#34D399", foundation: "#94A3B8", unclassified: "#CBD5E1" };
 const format1 = (value: number) => value.toFixed(1);
 const percent = (value: number) => `${(value * 100).toFixed(1)}%`;
@@ -178,6 +170,7 @@ export default function Home() {
   const [selectedStudent, setSelectedStudent] = useState<StudentScore | null>(null);
   const [importing, setImporting] = useState(false);
   const [exporting, setExporting] = useState<"word" | "pdf" | "excel" | null>(null);
+  const [pdfHostMounted, setPdfHostMounted] = useState(false);
   const [reportType, setReportType] = useState<ReportType>("年级质量分析");
   const [importMessage, setImportMessage] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -422,12 +415,16 @@ export default function Home() {
   async function exportPdf() {
     setExporting("pdf");
     try {
+      setPdfHostMounted(true);
+      // 等待按需挂载的导出宿主完成一次真实渲染后再截图
+      await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
       await document.fonts?.ready;
       await exportElementPdf(document.getElementById("export-report-content"), `质量慧析-${exam}-${reportType}.pdf`);
       setImportMessage("分页PDF报告已生成并开始下载。");
     } catch (error) {
       setImportMessage(error instanceof Error ? `PDF导出失败：${error.message}` : "PDF导出失败，请重试。");
     } finally {
+      setPdfHostMounted(false);
       setExporting(null);
     }
   }
@@ -472,7 +469,7 @@ export default function Home() {
       </div>
       <div className="dashboard-analytics-ribbon">
         <Panel title="成绩分布光谱" subtitle={`中位数 ${format1(scoreStats.median)} · 四分位区间 ${format1(scoreStats.p25)}—${format1(scoreStats.p75)}`} className="distribution-panel">
-          {scoreDistribution.length ? <div className="distribution-chart"><ResponsiveContainer width="100%" height="100%"><BarChart data={scoreDistribution} margin={{ top: 12, right: 12, left: -16, bottom: 0 }}><CartesianGrid strokeDasharray="2 6" vertical={false} stroke={CHART_COLORS.grid} /><XAxis dataKey="label" tick={{ fontSize: 9 }} interval={0} /><YAxis allowDecimals={false} tick={{ fontSize: 9 }} /><Tooltip formatter={(value, name) => { const numeric = typeof value === "number" ? value : 0; const label = String(name); return [label === "rate" ? percent(numeric) : numeric, label === "count" ? "人数" : "占比"]; }} /><ReferenceLine x={scoreDistribution.find((bin) => scoreStats.median >= bin.start && scoreStats.median < bin.end)?.label} stroke="#5B5BD6" strokeDasharray="4 4" label={{ value: "中位数", fill: "#5B5BD6", fontSize: 10 }} /><Bar dataKey="count" name="人数" fill="#7770E6" radius={[7, 7, 2, 2]} animationDuration={900} /></BarChart></ResponsiveContainer></div> : <EmptyState text="当前筛选范围没有可绘制的分数" />}
+          {scoreDistribution.length ? <div className="distribution-chart"><Suspense fallback={chartFallback}><DistributionChart bins={scoreDistribution} medianBinLabel={scoreDistribution.find((bin) => scoreStats.median >= bin.start && scoreStats.median < bin.end)?.label} /></Suspense></div> : <EmptyState text="当前筛选范围没有可绘制的分数" />}
           <div className="stat-ribbon"><span>标准差 <b>{format1(scoreStats.standardDeviation)}</b></span><span>最高分 <b>{format1(scoreStats.max)}</b></span><span>最低分 <b>{format1(scoreStats.min)}</b></span></div>
         </Panel>
         <Panel title="学生分层行动栈" subtitle="先看人数，再决定教学资源投放">
@@ -484,10 +481,10 @@ export default function Home() {
       </Panel>
       <div className="dashboard-grid">
         <Panel title="班级一本 / 本科上线率" subtitle="橙色为一本，绿色为本科；同组柱可直接比较转化空间" action={<TierLegend />} className="span-2">
-          {rankData.length ? <div className="chart-box"><ResponsiveContainer width="100%" height="100%"><BarChart data={rankData} margin={{ top: 12, right: 16, left: 0, bottom: 4 }}><CartesianGrid strokeDasharray="2 6" vertical={false} stroke={CHART_COLORS.grid} /><XAxis dataKey="name" tick={{ fontSize: 12 }} /><YAxis tick={{ fontSize: 12 }} unit="%" domain={[0, 100]} /><Tooltip cursor={{ fill: CHART_COLORS.cursor }} /><Legend /><Bar dataKey="一本率" fill={TIER_COLORS.top} radius={[7, 7, 2, 2]} animationDuration={900} /><Bar dataKey="本科率" fill={TIER_COLORS.undergraduate} radius={[7, 7, 2, 2]} animationDuration={1100} /></BarChart></ResponsiveContainer></div> : <EmptyState text="当前筛选范围没有班级数据" />}
+          {rankData.length ? <div className="chart-box"><Suspense fallback={chartFallback}><RateBarsChart data={rankData} /></Suspense></div> : <EmptyState text="当前筛选范围没有班级数据" />}
         </Panel>
         <Panel title="上线结构" subtitle="按当前分数线自动计算">
-          <div className="pie-wrap"><ResponsiveContainer width="100%" height="100%"><PieChart><Pie data={pieData} dataKey="value" nameKey="name" innerRadius={56} outerRadius={84} paddingAngle={3} animationDuration={1000}>{pieData.map((_, index) => <Cell key={index} fill={COLORS[index]} />)}</Pie><Tooltip /><Legend verticalAlign="bottom" /></PieChart></ResponsiveContainer><div className="pie-center"><b>{activeScores.length}</b><span>总人数</span></div></div>
+          <div className="pie-wrap"><Suspense fallback={chartFallback}><TrackPieChart data={pieData} /></Suspense><div className="pie-center"><b>{activeScores.length}</b><span>总人数</span></div></div>
         </Panel>
         <Panel title="学科有效上线" subtitle="一本 / 本科双口径">
           <div className="subject-list">{subjects.slice(0, 8).map((item) => <button key={item.subject} onClick={() => { setSubject(item.subject); setView("subjects"); }}><span>{item.subject}</span><div className="dual-progress"><i className="top" style={{ width: `${Math.min(100, item.topEffectiveRate * 100)}%` }} /><i className="undergraduate" style={{ width: `${Math.min(100, item.undergraduateEffectiveRate * 100)}%` }} /></div><b><em>一本{percent(item.topEffectiveRate)}</em><em>本科{percent(item.undergraduateEffectiveRate)}</em></b></button>)}</div>
@@ -512,7 +509,7 @@ export default function Home() {
   const renderClasses = () => {
     const data = currentClassSummaries.map((item) => ({ name: `${item.classNo}班`, 平均分: Number(item.average.toFixed(1)), 一本率: Number((item.topRate * 100).toFixed(1)), 本科率: Number((item.undergraduateRate * 100).toFixed(1)) }));
     return <div className="two-column">
-      <Panel title="班级横向对比" subtitle="平均分及一本/本科上线率，建议优先在同班型内比较" action={<TierLegend />} className="span-2"><div className="chart-box tall"><ResponsiveContainer width="100%" height="100%"><BarChart data={data}><CartesianGrid strokeDasharray="2 6" vertical={false} stroke={CHART_COLORS.grid} /><XAxis dataKey="name" /><YAxis yAxisId="left" /><YAxis yAxisId="right" orientation="right" unit="%" domain={[0, 100]} /><Tooltip cursor={{ fill: CHART_COLORS.cursor }} /><Legend /><Bar yAxisId="left" dataKey="平均分" fill={CHART_COLORS.primary} radius={[6, 6, 2, 2]} animationDuration={800} /><Bar yAxisId="right" dataKey="一本率" fill={TIER_COLORS.top} radius={[6, 6, 2, 2]} animationDuration={1000} /><Bar yAxisId="right" dataKey="本科率" fill={TIER_COLORS.undergraduate} radius={[6, 6, 2, 2]} animationDuration={1200} /></BarChart></ResponsiveContainer></div></Panel>
+      <Panel title="班级横向对比" subtitle="平均分及一本/本科上线率，建议优先在同班型内比较" action={<TierLegend />} className="span-2"><div className="chart-box tall"><Suspense fallback={chartFallback}><ClassCompareChart data={data} /></Suspense></div></Panel>
       <Panel title="班级指标排名" subtitle="点击班级进入该班分析" className="span-2"><div className="data-table"><table><thead><tr><th>班级</th><th>类别</th><th>班型</th><th>人数</th><th>平均分</th><th>一本人数/率</th><th>本科人数/率</th><th>操作</th></tr></thead><tbody>{[...currentClassSummaries].sort((a, b) => b.average - a.average).map((item, index) => <tr key={item.classNo}><td><b>{index + 1}. {item.classNo}班</b></td><td>{item.track}</td><td>{item.type}</td><td>{item.count}</td><td>{format1(item.average)}</td><td>{item.topCount} / {percent(item.topRate)}</td><td>{item.undergraduateCount} / {percent(item.undergraduateRate)}</td><td><button className="table-action" onClick={() => setClassNo(item.classNo)}>只看该班</button></td></tr>)}</tbody></table></div></Panel>
       <Panel title="同类对标雷达" subtitle="平均分差、一本率差和本科率差均相对同组基准" className="span-2"><div className="data-table"><table><thead><tr><th>班级</th><th>对标组</th><th>均分差</th><th>一本率差</th><th>本科率差</th><th>同组位次</th></tr></thead><tbody>{benchmarkRows.filter((item) => classNo === "全部" || item.classNo === classNo).map((item) => <tr key={`benchmark-${item.classNo}`}><td>{item.classNo}班</td><td>{item.peerGroup}</td><td className={item.averageDelta >= 0 ? "positive" : "negative"}>{item.averageDelta >= 0 ? "+" : ""}{format1(item.averageDelta)}</td><td className={item.topRateDelta >= 0 ? "positive" : "negative"}>{item.topRateDelta >= 0 ? "+" : ""}{percent(item.topRateDelta)}</td><td className={item.undergraduateRateDelta >= 0 ? "positive" : "negative"}>{item.undergraduateRateDelta >= 0 ? "+" : ""}{percent(item.undergraduateRateDelta)}</td><td>{item.peerRank} / {item.peerSize}</td></tr>)}</tbody></table></div></Panel>
     </div>;
@@ -524,7 +521,7 @@ export default function Home() {
     return <div className="two-column">
       <Panel title="学科选择" subtitle="切换学科查看班级横向差异"><div className="subject-pills">{subjects.map((item) => <button className={activeSubject === item.subject ? "active" : ""} onClick={() => setSubject(item.subject)} key={item.subject}>{item.subject}<span>{format1(item.average)}</span></button>)}</div></Panel>
       <div className="mini-stat-row"><StatCard icon={BarChart3} label={`${selected?.subject ?? activeSubject}平均分`} value={selected ? format1(selected.average) : "—"} note={`最高分${selected ? format1(selected.max) : "—"}`} /><StatCard icon={Target} label="一本学科有效" value={`${selected?.topEffectiveCount ?? 0}人`} note={`有效线${selected?.topEffectiveLine ? format1(selected.topEffectiveLine) : "未设置"} · ${percent(selected?.topEffectiveRate ?? 0)}`} tone="orange" /><StatCard icon={CheckCircle2} label="本科学科有效" value={`${selected?.undergraduateEffectiveCount ?? 0}人`} note={`有效线${selected?.undergraduateEffectiveLine ? format1(selected.undergraduateEffectiveLine) : "未设置"} · ${percent(selected?.undergraduateEffectiveRate ?? 0)}`} tone="green" /></div>
-      <Panel title={`${activeSubject}班级横向对比`} subtitle="只比较实际参加该学科的班级" className="span-2"><div className="chart-box tall"><ResponsiveContainer width="100%" height="100%"><BarChart data={classData}><CartesianGrid strokeDasharray="2 6" vertical={false} stroke={CHART_COLORS.grid} /><XAxis dataKey="name" /><YAxis domain={["dataMin - 8", "dataMax + 5"]} /><Tooltip cursor={{ fill: CHART_COLORS.cursor }} /><Bar dataKey="average" name="平均分" fill={CHART_COLORS.primary} radius={[7, 7, 2, 2]} animationDuration={1000} /></BarChart></ResponsiveContainer></div></Panel>
+      <Panel title={`${activeSubject}班级横向对比`} subtitle="只比较实际参加该学科的班级" className="span-2"><div className="chart-box tall"><Suspense fallback={chartFallback}><SubjectClassChart data={classData} /></Suspense></div></Panel>
       <Panel title="各学科概览" subtitle="一本与本科有效上线双口径" className="span-2"><div className="data-table"><table><thead><tr><th>学科</th><th>参考人数</th><th>平均分</th><th>最高分</th><th>一本有效分</th><th>一本人数/率</th><th>本科有效分</th><th>本科人数/率</th></tr></thead><tbody>{subjects.map((item) => <tr key={item.subject}><td><b>{item.subject}</b></td><td>{item.count}</td><td>{format1(item.average)}</td><td>{format1(item.max)}</td><td>{item.topEffectiveLine ? format1(item.topEffectiveLine) : "未设置"}</td><td>{item.topEffectiveCount} / {percent(item.topEffectiveRate)}</td><td>{item.undergraduateEffectiveLine ? format1(item.undergraduateEffectiveLine) : "未设置"}</td><td>{item.undergraduateEffectiveCount} / {percent(item.undergraduateEffectiveRate)}</td></tr>)}</tbody></table></div></Panel>
       <Panel title={`${activeSubject}知识点优先级`} subtitle="把小题得分率聚合为可执行的补弱顺序" className="span-2"><div className="knowledge-layout"><div className="knowledge-priority">{knowledgeData.slice(0, 8).map((item, index) => <div key={`${item.knowledge}-${index}`}><span className={`priority-${item.priority === "优先补弱" ? "high" : item.priority === "巩固提升" ? "mid" : "keep"}`}>{item.priority}</span><b>{item.knowledge}</b><small>{item.questionCount}题 · {item.responseCount.toLocaleString()}次作答</small><strong>{percent(item.rate)}</strong></div>)}</div><div className="knowledge-note"><Sparkles size={19} /><p><b>如何使用</b><span>优先补弱 = 低得分率且已覆盖的共性问题；巩固提升 = 需要分层作业；优势保持 = 保持高阶题训练。</span></p></div></div></Panel>
     </div>;
@@ -543,8 +540,8 @@ export default function Home() {
       <div className="student-main">
         <div className="student-hero"><div className="avatar">{selected.name.slice(-1)}</div><div><span>{selected.classNo}班 · {selected.combination} · {selected.classType}</span><h1>{selected.name}</h1><p>{exam}总分 {format1(selected.total)} · 市排名 {selected.cityRank ?? "—"} · 校排名 {selected.schoolRank ?? "—"}</p></div><div className="student-status">{typeof threshold?.topTotal === "number" && selected.total >= threshold.topTotal ? <StatusTag tone="warn">一本上线</StatusTag> : typeof threshold?.undergraduateTotal === "number" && selected.total >= threshold.undergraduateTotal ? <StatusTag tone="good">本科上线</StatusTag> : <StatusTag tone="bad">重点关注</StatusTag>}</div></div>
         <div className="two-column">
-          <Panel title="历次考试走势" subtitle="总分变化"><div className="chart-box"><ResponsiveContainer width="100%" height="100%"><LineChart data={history}><CartesianGrid strokeDasharray="2 6" vertical={false} stroke={CHART_COLORS.grid} /><XAxis dataKey="exam" /><YAxis domain={["dataMin - 20", "dataMax + 20"]} /><Tooltip /><Line type="monotone" dataKey="total" stroke={CHART_COLORS.primary} strokeWidth={3} dot={{ r: 4, fill: "#fff", strokeWidth: 2 }} /></LineChart></ResponsiveContainer></div></Panel>
-          <Panel title="学科上线诊断" subtitle="个人分数与一本、本科有效分对照；缺失学科不会伪造为0分" action={<TierLegend />}><div className="chart-box"><ResponsiveContainer width="100%" height="100%"><BarChart data={subjectData}><CartesianGrid strokeDasharray="2 6" vertical={false} stroke={CHART_COLORS.grid} /><XAxis dataKey="subject" /><YAxis /><Tooltip cursor={{ fill: CHART_COLORS.cursor }} /><Legend /><Bar dataKey="score" name="个人分数" fill={CHART_COLORS.primary} radius={[6, 6, 2, 2]} animationDuration={700} /><Bar dataKey="topLine" name="一本有效分" fill={TIER_COLORS.top} radius={[6, 6, 2, 2]} animationDuration={950} /><Bar dataKey="undergraduateLine" name="本科有效分" fill={TIER_COLORS.undergraduate} radius={[6, 6, 2, 2]} animationDuration={1150} /></BarChart></ResponsiveContainer></div></Panel>
+          <Panel title="历次考试走势" subtitle="总分变化"><div className="chart-box"><Suspense fallback={chartFallback}><HistoryLineChart data={history} /></Suspense></div></Panel>
+          <Panel title="学科上线诊断" subtitle="个人分数与一本、本科有效分对照；缺失学科不会伪造为0分" action={<TierLegend />}><div className="chart-box"><Suspense fallback={chartFallback}><SubjectDiagnosisChart data={subjectData} /></Suspense></div></Panel>
         </div>
         <Panel title="学科明细" subtitle="分别显示距离一本、本科有效分的差值；缺失字段显示为—"><div className="student-subject-grid">{subjectData.map((item) => { const topDiff = item.topLine !== null && item.score !== null ? item.score - item.topLine : null; const undergraduateDiff = item.undergraduateLine !== null && item.score !== null ? item.score - item.undergraduateLine : null; return <div key={item.subject}><span>{item.subject}</span><b>{item.score === null ? "—" : format1(item.score)}</b><small className={topDiff !== null && topDiff < 0 ? "negative" : "positive"}>一本 {topDiff === null ? "—" : `${topDiff >= 0 ? "+" : ""}${format1(topDiff)}`}</small><small className={undergraduateDiff !== null && undergraduateDiff < 0 ? "negative" : "positive"}>本科 {undergraduateDiff === null ? "—" : `${undergraduateDiff >= 0 ? "+" : ""}${format1(undergraduateDiff)}`}</small></div>; })}</div></Panel>
       </div>
@@ -566,13 +563,13 @@ export default function Home() {
     return <div className="two-column">
       <Panel title="小题分析条件" subtitle="选择学科和班级后自动重算"><div className="subject-pills">{subjects.map((item) => <button className={activeSubject === item.subject ? "active" : ""} onClick={() => setSubject(item.subject)} key={item.subject}>{item.subject}</button>)}</div><div className="item-summary"><div><span>识别题目</span><b>{questionBank.length}</b></div><div><span>答题记录</span><b>{itemRows.length}</b></div><div><span>平均得分率</span><b>{itemStats.length ? percent(average(itemStats.map((item) => item.rate))) : "—"}</b></div></div></Panel>
       <Panel title="薄弱知识点" subtitle="按小题得分率从低到高"><div className="weak-list">{lowItems.slice(0, 6).map((item, index) => <div key={`${item.question}-${index}`}><span className="rank">{index + 1}</span><div><b>{item.knowledge}</b><small>{item.question} · 均分{format1(item.average)}/{item.maxScore ?? "—"}{item.maxScoreSource === "inferred" ? " · 推断满分" : ""}</small></div><strong>{percent(item.rate)}</strong></div>)}</div></Panel>
-      <Panel title={`${activeSubject}小题得分率`} subtitle="低于60%的题目以橙色提示" className="span-2">{chartData.length ? <div className="chart-box tall"><ResponsiveContainer width="100%" height="100%"><BarChart data={chartData}><CartesianGrid strokeDasharray="2 6" vertical={false} stroke={CHART_COLORS.grid} /><XAxis dataKey="name" interval={0} angle={-25} textAnchor="end" height={58} /><YAxis unit="%" domain={[0, 100]} /><Tooltip cursor={{ fill: CHART_COLORS.cursor }} /><Bar dataKey="得分率" radius={[6, 6, 2, 2]} animationDuration={1000}>{chartData.map((item, index) => <Cell key={index} fill={item.得分率 < 60 ? "#F97316" : item.得分率 >= 80 ? TIER_COLORS.undergraduate : CHART_COLORS.primary} />)}</Bar></BarChart></ResponsiveContainer></div> : <EmptyState text={emptyItemText} />}</Panel>
+      <Panel title={`${activeSubject}小题得分率`} subtitle="低于60%的题目以橙色提示" className="span-2">{chartData.length ? <div className="chart-box tall"><Suspense fallback={chartFallback}><ItemRateChart data={chartData} /></Suspense></div> : <EmptyState text={emptyItemText} />}</Panel>
       <Panel title="小题明细" subtitle="分值、知识点、平均得分和得分率；推断满分带有标记" className="span-2"><div className="data-table"><table><thead><tr><th>题号</th><th>知识点</th><th>满分</th><th>平均分</th><th>得分率</th><th>诊断</th></tr></thead><tbody>{itemStats.map((item) => <tr key={item.question}><td>{item.question}</td><td>{item.knowledge}</td><td>{item.maxScore ?? "—"}{item.maxScoreSource === "inferred" ? "*" : ""}</td><td>{format1(item.average)}</td><td>{percent(item.rate)}</td><td><StatusTag tone={item.rate >= .75 ? "good" : item.rate >= .6 ? "neutral" : "warn"}>{item.rate >= .75 ? "掌握较好" : item.rate >= .6 ? "基本掌握" : "重点补弱"}</StatusTag></td></tr>)}</tbody></table></div></Panel>
     </div>;
   };
 
   const renderHistory = () => <div className="two-column">
-    <Panel title="历次考试年级趋势" subtitle="平均分与上线人数变化" action={<TierLegend />} className="span-2"><div className="chart-box tall"><ResponsiveContainer width="100%" height="100%"><LineChart data={historyData}><CartesianGrid strokeDasharray="2 6" vertical={false} stroke={CHART_COLORS.grid} /><XAxis dataKey="exam" /><YAxis yAxisId="score" domain={["dataMin - 20", "dataMax + 20"]} /><YAxis yAxisId="count" orientation="right" /><Tooltip /><Legend /><Line yAxisId="score" type="monotone" dataKey="average" name="平均分" stroke={CHART_COLORS.primary} strokeWidth={3} animationDuration={700} /><Line yAxisId="count" type="monotone" dataKey="top" name="一本上线" stroke={TIER_COLORS.top} strokeWidth={3} animationDuration={950} /><Line yAxisId="count" type="monotone" dataKey="undergraduate" name="本科上线" stroke={TIER_COLORS.undergraduate} strokeWidth={3} animationDuration={1150} /></LineChart></ResponsiveContainer></div></Panel>
+    <Panel title="历次考试年级趋势" subtitle="平均分与上线人数变化" action={<TierLegend />} className="span-2"><div className="chart-box tall"><Suspense fallback={chartFallback}><GradeTrendChart data={historyData} /></Suspense></div></Panel>
     <Panel title="考试节点对比" subtitle="当前筛选范围"><div className="history-cards">{historyData.map((item, index) => <div key={item.exam}><span>{item.exam}</span><b>{format1(item.average)}</b><small>平均分</small><em className={index > 0 && item.average >= historyData[index - 1].average ? "positive" : "negative"}>{index === 0 ? "基准" : `${item.average >= historyData[index - 1].average ? "+" : ""}${format1(item.average - historyData[index - 1].average)}`}</em></div>)}</div></Panel>
     <Panel title="增值观察" subtitle="平均分与一本/本科上线转化"><div className="insight-list"><div><CheckCircle2 /><p><b>平均分变化</b><span>{historyData.length > 1 ? `较${historyData[historyData.length - 2].exam}${historyData.at(-1)!.average >= historyData[historyData.length - 2].average ? "提高" : "下降"}${format1(Math.abs(historyData.at(-1)!.average - historyData[historyData.length - 2].average))}分` : "暂无对比考试"}</span></p></div><div><Medal /><p><b>一本上线变化</b><span>{historyData.length > 1 ? `较上次${historyData.at(-1)!.top - historyData[historyData.length - 2].top >= 0 ? "增加" : "减少"}${Math.abs(historyData.at(-1)!.top - historyData[historyData.length - 2].top)}人` : "暂无对比考试"}</span></p></div><div><Target /><p><b>本科上线变化</b><span>{historyData.length > 1 ? `较上次${historyData.at(-1)!.undergraduate - historyData[historyData.length - 2].undergraduate >= 0 ? "增加" : "减少"}${Math.abs(historyData.at(-1)!.undergraduate - historyData[historyData.length - 2].undergraduate)}人` : "暂无对比考试"}</span></p></div><div><AlertTriangle /><p><b>使用建议</b><span>切换班级后，可查看单班历次考试变化。</span></p></div></div></Panel>
   </div>;
@@ -627,7 +624,7 @@ export default function Home() {
         </header>
         {importMessage && <div className={`import-message ${importMessage.includes("失败") || importMessage.includes("没有找到") || importMessage.includes("无法") ? "error" : importMessage.includes("提醒") || importMessage.includes("未能保存") ? "warning" : "success"}`}><span>{importMessage}</span><button onClick={() => setImportMessage(null)}><X size={15} /></button></div>}
         <div className="content"><div className="view-stage" key={`${view}-${exam}-${track}-${classNo}`}>{renderView()}</div></div>
-        <div className="export-report-host" aria-hidden="true"><ReportBody dataset={dataset} exam={exam} track={track} classNo={classNo} reportType={reportType} reportId="export-report-content" /></div>
+        {pdfHostMounted ? <div className="export-report-host" aria-hidden="true"><ReportBody dataset={dataset} exam={exam} track={track} classNo={classNo} reportType={reportType} reportId="export-report-content" /></div> : null}
         <footer className="app-footer"><span>数据仅保存在本机浏览器中 · 缺失字段自动降级处理</span><span>导入于 {cnDate(dataset.importedAt)}</span></footer>
       </main>
     </div>

@@ -35,6 +35,8 @@ jobs:
         working-directory: legacy
         run: |
           npm ci
+          npx tsc --noEmit
+          npm run lint
           npm run build:pages
           # vite.pages.config.ts 已将产物规整为 pages-dist/index.html + ./assets/；
           # 保留对旧产物布局（pages-static/index.html + ../assets）的回退，兼容从旧配置构建的分支。

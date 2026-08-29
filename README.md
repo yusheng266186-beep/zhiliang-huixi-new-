@@ -106,13 +106,9 @@ Pages 版本在浏览器本地解析 Excel、生成图表和导出文件，不�
 
     http://localhost:5173
 
-如果环境不需要 Cloudflare 相关接口，可以尝试：
-
-    SKIP_CLOUDFLARE=1 npm run dev -- --host 127.0.0.1
-
 ## 常用命令
 
-    npm run build
+    npm run build:pages
     npm run lint
     npm run test
     npm run test:parser -- "/path/to/质量复盘.xlsx"
@@ -120,44 +116,41 @@ Pages 版本在浏览器本地解析 Excel、生成图表和导出文件，不�
 
 说明：
 
-- build：构建应用；
-- lint：检查代码质量；
-- test：构建并运行渲染 HTML 测试；
+- build:pages：构建 Pages 静态站点；
+- lint：检查代码质量（typescript-eslint + react-hooks）；
+- test：构建 Pages 并执行产物冒烟检查（入口 HTML 与本地资源引用必须可解析）；
 - test:parser：验证工作簿解析、字段映射和容错；
 - test:analytics：验证统计分析和指标结果。
 
 验收覆盖多考试、多分数线、缺失字段和小题记录等场景。
 
 解析和分析脚本还会测试插入空列、字段改名、缺失学科、缺失总分和缺失小题表等变体。
+不带参数时默认使用 `examples/synthetic-quality-review.xlsx`（由 `scripts/make-fixture.ts`
+从真实工作簿生成的匿名合成示例，本机生成、不入库）；分析真实数据时通过参数显式传入。
 
 ## 目录结构
 
     zhiliang-huixi-new-/
     ├── app/                  # 前端页面、组件、分析逻辑和导出功能
-    ├── db/                   # 数据层或相关类型
-    ├── drizzle/              # Drizzle 结构或迁移相关内容
-    ├── docs/                 # 项目文档和辅助资料
-    ├── examples/             # 示例工作簿或示例数据
+    ├── examples/             # 合成示例的生成说明（工作簿本身不入库）
     ├── pages-static/          # GitHub Pages 静态入口和发布资源
     ├── public/                # 公共资源
-    ├── scripts/               # 解析、分析和验证脚本
-    ├── tests/                 # 渲染和功能测试
-    ├── worker/                # 可选 Worker 相关代码
+    ├── scripts/               # 解析、分析、验证与构建冒烟脚本
     ├── .github/workflows/     # Pages 发布工作流
     ├── package.json           # 脚本和依赖
-    ├── vite.config.ts         # 开发/构建配置
-    └── vite.pages.config.ts   # Pages 静态构建配置
+    └── vite.pages.config.ts   # 开发与 Pages 静态构建配置
 
-项目同时保留应用开发、数据解析、静态 Pages 发布和验证测试所需的结构。
+这是一个纯客户端单页应用：解析、分析、图表与导出全部在浏览器完成，无服务端组件。
 
 ## GitHub Pages 发布
 
 仓库内置 .github/workflows/pages.yml。推送到 main 后，工作流会：
 
 1. 安装 npm 依赖；
-2. 执行 npm run build:pages；
-3. 生成静态 Pages 构建；
-4. 发布到 GitHub Pages。
+2. 执行 `npx tsc --noEmit` 与 `npm run lint` 质量门；
+3. 执行 npm run build:pages；
+4. 运行构建冒烟检查（scripts/check-pages-build.mjs，入口 HTML 与全部本地资源引用必须可解析）；
+5. 发布到 GitHub Pages。
 
 Pages 地址：
 
