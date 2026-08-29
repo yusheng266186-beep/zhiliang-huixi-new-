@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   ArrowUpRight,
@@ -122,8 +122,10 @@ function TierLegend() {
   return <div className="tier-legend" aria-label="一本和本科颜色说明"><span className="top"><i />一本/特控</span><span className="undergraduate"><i />本科</span></div>;
 }
 
-function ReportBody({ dataset, exam, track, classNo, reportType, reportId = "report-content" }: { dataset: GradeDataset; exam: string; track: Track | "全部"; classNo: number | "全部"; reportType: ReportType; reportId?: string }) {
-  const report = buildQualityReport(dataset, { exam, track, classNo, reportType });
+// memo + useMemo：报告模型只在参数变化时重算一次；
+// 页面预览与隐藏导出宿主两处 ReportBody 不再随每次交互全量重建（7000+ 行数据量下差异显著）。
+const ReportBody = memo(function ReportBody({ dataset, exam, track, classNo, reportType, reportId = "report-content" }: { dataset: GradeDataset; exam: string; track: Track | "全部"; classNo: number | "全部"; reportType: ReportType; reportId?: string }) {
+  const report = useMemo(() => buildQualityReport(dataset, { exam, track, classNo, reportType }), [dataset, exam, track, classNo, reportType]);
   const { summary, classes, critical, subjects, segments, insights } = report;
 
   return (
@@ -163,7 +165,7 @@ function ReportBody({ dataset, exam, track, classNo, reportType, reportId = "rep
       <div className="report-footer">数据来源：{dataset.sourceName} · 系统依据导入成绩重新计算</div>
     </div>
   );
-}
+});
 
 export default function Home() {
   const [dataset, setDataset] = useState<GradeDataset>(() => createDemoDataset());
@@ -430,11 +432,11 @@ export default function Home() {
     }
   }
 
-  function exportExcel() {
+  async function exportExcel() {
     setExporting("excel");
     try {
       const report = buildQualityReport(dataset, { exam, track, classNo, reportType, subject: activeSubject });
-      exportAnalysisExcel(report);
+      await exportAnalysisExcel(report);
       setImportMessage("多工作表Excel分析包已生成并开始下载。");
     } catch (error) {
       setImportMessage(error instanceof Error ? `Excel导出失败：${error.message}` : "Excel导出失败，请重试。");

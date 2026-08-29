@@ -11,13 +11,13 @@ export const metadata: Metadata = {
     description: "把复杂成绩转化为清晰决策。",
     type: "website",
     locale: "zh_CN",
-    images: [{ url: "/og.png", width: 1733, height: 909, alt: "质量慧析数据分析系统" }],
+    images: [{ url: "/og.jpg", width: 1733, height: 909, alt: "质量慧析数据分析系统" }],
   },
   twitter: {
     card: "summary_large_image",
     title: "质量慧析｜高中考试质量分析系统",
     description: "把复杂成绩转化为清晰决策。",
-    images: ["/og.png"],
+    images: ["/og.jpg"],
   },
 };
 

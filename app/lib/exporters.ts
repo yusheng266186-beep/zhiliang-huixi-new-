@@ -1,4 +1,3 @@
-import * as XLSX from "xlsx";
 import type { QualityReportModel } from "./report-model";
 
 const safe = (value: unknown) => value === null || value === undefined || value === "" ? "—" : value;
@@ -56,7 +55,8 @@ export async function exportReportWord(model: QualityReportModel): Promise<void>
   downloadBlob(await Packer.toBlob(doc), filename(model, "docx"));
 }
 
-export function exportAnalysisExcel(model: QualityReportModel): void {
+export async function exportAnalysisExcel(model: QualityReportModel): Promise<void> {
+  const XLSX = await import("xlsx");
   const book = XLSX.utils.book_new();
   const add = (name: string, rows: unknown[][]) => XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet(rows), name.slice(0, 31));
   add("分析摘要", [["质量慧析分析摘要"], ["报告", model.title], ["范围", model.scope], ["数据源", model.sourceName], [], ["指标", "数值"], ["参考人数", model.summary.count], ["平均分", model.summary.average], ["中位数", model.summary.median], ["一本上线", model.summary.topCount], ["一本上线率", model.summary.topRate], ["本科上线", model.summary.undergraduateCount], ["本科上线率", model.summary.undergraduateRate], ["一本临界", model.summary.topCriticalCount], ["本科临界", model.summary.undergraduateCriticalCount], [], ["核心发现", "行动建议"], ...model.insights.map((item) => [item.finding, item.action])]);

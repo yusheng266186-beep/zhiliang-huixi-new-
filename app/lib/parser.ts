@@ -1,4 +1,10 @@
-import * as XLSX from "xlsx";
+import type * as XlsxModule from "xlsx";
+
+// xlsx 体积约 900KB(min)，只在真正导入工作簿时才加载，不进首屏包。
+let XLSX: typeof XlsxModule;
+const ensureXlsx = async () => { XLSX ||= await import("xlsx"); };
+type WorkBook = XlsxModule.WorkBook;
+type WorkSheet = XlsxModule.WorkSheet;
 import { getClassProfile, normalizeExam, relevantSubjects } from "./class-config";
 import type { DataCapability, DataProfile, FieldMatch, GradeDataset, ImportIssue, ItemResponse, QuestionMeta, StudentScore, SubjectName, Threshold, Track } from "./types";
 
@@ -94,10 +100,10 @@ const parseScores = (rows: Row[], issues: ImportIssue[]) => {
   return { scores, preferredSchool, fieldMatches, headerRow, reconstructedTotals, skippedRows: incompleteRows + missingTotalRows };
 };
 
-const sheetForSubject = (workbook: XLSX.WorkBook, subject: SubjectName) => workbook.SheetNames.find((name) => normalized(name) === normalized(subject)) ?? workbook.SheetNames.find((name) => normalized(name).startsWith(normalized(subject)));
-const previewRows = (sheet: XLSX.WorkSheet, maxRows = 120, maxColumns = 100): Row[] => { const range = XLSX.utils.decode_range(sheet["!ref"] ?? "A1:A1"), lastRow = Math.min(range.e.r, range.s.r + maxRows - 1), lastColumn = Math.min(range.e.c, range.s.c + maxColumns - 1), rows: Row[] = []; for (let row = range.s.r; row <= lastRow; row += 1) { const values: Row = []; for (let column = range.s.c; column <= lastColumn; column += 1) values[column - range.s.c] = sheet[XLSX.utils.encode_cell({ r: row, c: column })]?.v ?? null; rows.push(values); } return rows; };
+const sheetForSubject = (workbook: WorkBook, subject: SubjectName) => workbook.SheetNames.find((name) => normalized(name) === normalized(subject)) ?? workbook.SheetNames.find((name) => normalized(name).startsWith(normalized(subject)));
+const previewRows = (sheet: WorkSheet, maxRows = 120, maxColumns = 100): Row[] => { const range = XLSX.utils.decode_range(sheet["!ref"] ?? "A1:A1"), lastRow = Math.min(range.e.r, range.s.r + maxRows - 1), lastColumn = Math.min(range.e.c, range.s.c + maxColumns - 1), rows: Row[] = []; for (let row = range.s.r; row <= lastRow; row += 1) { const values: Row = []; for (let column = range.s.c; column <= lastColumn; column += 1) values[column - range.s.c] = sheet[XLSX.utils.encode_cell({ r: row, c: column })]?.v ?? null; rows.push(values); } return rows; };
 
-const parseItems = (workbook: XLSX.WorkBook, issues: ImportIssue[]) => {
+const parseItems = (workbook: WorkBook, issues: ImportIssue[]) => {
   const questionBanks: Record<string, QuestionMeta[]> = {}, itemResponses: ItemResponse[] = [];
   SUBJECTS.filter((subject) => subject !== "日语").forEach((subject) => { const sheetName = sheetForSubject(workbook, subject); if (!sheetName) return; const rows = XLSX.utils.sheet_to_json<Row>(workbook.Sheets[sheetName], { header: 1, raw: true, defval: null }), metaColumns = new Map<string, number[]>();
     for (let rowIndex = 0; rowIndex < Math.min(rows.length, 120); rowIndex += 1) { const headerColumn = rows[rowIndex].findIndex((cell) => normalized(cell) === "题号"); if (headerColumn < 0) continue; const examSource = [...rows[rowIndex].slice(0, headerColumn)].reverse().find((cell) => text(cell)), exam = normalizeExam(text(examSource)); if (!exam) continue; const questions: QuestionMeta[] = [], columns: number[] = []; for (let column = headerColumn + 1; column < Math.min(rows[rowIndex].length, headerColumn + MAX_ITEM_COLUMNS); column += 1) { const question = text(rows[rowIndex][column]); if (!question || ["客观分", "主观分", "总分", "原分", "赋分"].includes(question)) continue; const maxScore = num(rows[rowIndex + 1]?.[column]); columns.push(column); questions.push({ question, maxScore, maxScoreSource: maxScore === null ? undefined : "source", knowledge: text(rows[rowIndex + 2]?.[column]), sourceColumn: column }); } if (questions.length) { questionBanks[`${subject}::${exam}`] = questions; metaColumns.set(exam, columns); } }
@@ -120,8 +126,9 @@ const buildProfile = (scores: StudentScore[], thresholds: Threshold[], itemRespo
 };
 
 export async function parseGradeWorkbook(file: File): Promise<GradeDataset> {
+  await ensureXlsx();
   if (file.size > 160 * 1024 * 1024) throw new Error("工作簿超过160MB，请先删除无关图片或拆分历史数据后再导入。");
-  let workbook: XLSX.WorkBook; try { workbook = XLSX.read(await file.arrayBuffer(), { type: "array", cellDates: true }); } catch { throw new Error("工作簿无法读取，可能已损坏、加密或不是有效Excel文件；原有数据不会被覆盖。"); }
+  let workbook: WorkBook; try { workbook = XLSX.read(await file.arrayBuffer(), { type: "array", cellDates: true }); } catch { throw new Error("工作簿无法读取，可能已损坏、加密或不是有效Excel文件；原有数据不会被覆盖。"); }
   const issues: ImportIssue[] = [];
   let baseSheetName = workbook.SheetNames.find((name) => normalized(name) === "学生基础") ?? "";
   if (!baseSheetName) { baseSheetName = workbook.SheetNames.map((name) => { const sheet = workbook.Sheets[name], headerRow = findScoreHeader(previewRows(sheet)), range = XLSX.utils.decode_range(sheet["!ref"] ?? "A1:A1"); return { name, headerRow, rowCount: range.e.r - range.s.r + 1, nameHint: /学生|成绩|基础/.test(name) ? 1 : 0 }; }).filter((candidate) => candidate.headerRow !== null).sort((a, b) => b.nameHint - a.nameHint || b.rowCount - a.rowCount)[0]?.name ?? ""; if (baseSheetName) issues.push({ level: "info", module: "成绩", message: `未找到“学生基础”，已根据表头自动使用“${baseSheetName}”。` }); }

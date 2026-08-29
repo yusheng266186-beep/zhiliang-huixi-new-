@@ -36,17 +36,25 @@ jobs:
         run: |
           npm ci
           npm run build:pages
-          cp pages-dist/pages-static/index.html pages-dist/index.html
-          sed -i 's|\.\./assets/|./assets/|g' pages-dist/index.html
-          rm -rf pages-dist/pages-static
+          # vite.pages.config.ts 已将产物规整为 pages-dist/index.html + ./assets/；
+          # 保留对旧产物布局（pages-static/index.html + ../assets）的回退，兼容从旧配置构建的分支。
+          if [ ! -f pages-dist/index.html ] && [ -f pages-dist/pages-static/index.html ]; then
+            cp pages-dist/pages-static/index.html pages-dist/index.html
+            sed -i 's|\.\./assets/|./assets/|g' pages-dist/index.html
+            rm -rf pages-dist/pages-static
+          fi
+          node scripts/check-pages-build.mjs
       - name: Build v2 site
         working-directory: v2-source
         run: |
           npm ci
           npm run build:pages
-          cp pages-dist/pages-static/index.html pages-dist/index.html
-          sed -i 's|\.\./assets/|./assets/|g' pages-dist/index.html
-          rm -rf pages-dist/pages-static
+          if [ ! -f pages-dist/index.html ] && [ -f pages-dist/pages-static/index.html ]; then
+            cp pages-dist/pages-static/index.html pages-dist/index.html
+            sed -i 's|\.\./assets/|./assets/|g' pages-dist/index.html
+            rm -rf pages-dist/pages-static
+          fi
+          if [ -f scripts/check-pages-build.mjs ]; then node scripts/check-pages-build.mjs; else echo "v2 branch has no smoke check script, skipping"; fi
       - name: Compose versioned Pages artifact
         run: |
           mkdir -p pages-artifact/v2

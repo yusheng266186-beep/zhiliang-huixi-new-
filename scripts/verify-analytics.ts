@@ -1,9 +1,18 @@
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { parseGradeWorkbook } from "../app/lib/parser";
 import { buildExecutiveInsights, classBenchmarks, descriptiveStats, distributionBins, filterScores, knowledgeSummaries, segmentSummary, subjectSummaries } from "../app/lib/analytics";
 import { buildQualityReport } from "../app/lib/report-model";
 
-const input = process.argv[2] ?? "/workspace/scratch/6b70ba3345f8/recovered/高2024级4册质量复盘1（小题得分）2025.7.16 (1).xlsx";
+// 输入优先级：命令行参数 > examples/ 下的合成示例工作簿 > 报错并给出指引。
+const FIXTURE = "examples/synthetic-quality-review.xlsx";
+const args = process.argv.slice(2);
+const input = args[0] ?? (existsSync(FIXTURE) ? FIXTURE : null);
+if (!input) {
+  console.error(`未找到输入工作簿。用法：node --import tsx scripts/verify-analytics.ts <工作簿.xlsx>（或先用 make-fixture.ts 生成 ${FIXTURE}）`);
+  process.exit(1);
+}
+console.log(`verify-analytics input: ${input}`);
 const bytes = await readFile(input);
 const dataset = await parseGradeWorkbook(new File([bytes], "analytics.xlsx"));
 const exam = dataset.exams.includes("4册") ? "4册" : dataset.exams.at(-1)!;

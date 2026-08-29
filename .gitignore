@@ -42,3 +42,5 @@ next-env.d.ts
 /work/
 /tmp/
 /tsconfig.tsbuildinfo
+examples/synthetic-quality-review.xlsx
+pages-dist/

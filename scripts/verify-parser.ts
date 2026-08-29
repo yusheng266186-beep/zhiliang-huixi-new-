@@ -1,8 +1,21 @@
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import * as XLSX from "xlsx";
 import { parseGradeWorkbook } from "../app/lib/parser";
 
-const input = process.argv[2] ?? "/workspace/scratch/6b70ba3345f8/recovered/高2024级4册质量复盘1（小题得分）2025.7.16 (1).xlsx";
+// 输入优先级：命令行参数 > examples/ 下的合成示例工作簿 > 报错并给出指引。
+// 不要再依赖任何本机绝对路径；真实工作簿通过参数显式传入。
+const FIXTURE = "examples/synthetic-quality-review.xlsx";
+const args = process.argv.slice(2);
+const usingFixture = !args[0] && existsSync(FIXTURE);
+const input = args[0] ?? (usingFixture ? FIXTURE : null);
+if (!input) {
+  console.error(`未找到输入工作簿。两种用法：
+  1. node --import tsx scripts/verify-parser.ts <真实工作簿.xlsx>
+  2. 先运行 node --import tsx scripts/make-fixture.ts <真实工作簿.xlsx> 生成 ${FIXTURE}，之后可直接运行 verify-parser。`);
+  process.exit(1);
+}
+console.log(`verify-parser input: ${input}${usingFixture ? "（合成示例）" : ""}`);
 const buffer = await readFile(input);
 
 const asFile = (workbook: XLSX.WorkBook, name: string) => {
@@ -17,7 +30,12 @@ const writeRows = (workbook: XLSX.WorkBook, sheetName: string, rows: unknown[][]
 
 const baselineWorkbook = read();
 const baseline = await parse(baselineWorkbook, "baseline.xlsx");
-if (baseline.scores.length !== 7255 || baseline.exams.length !== 11 || baseline.thresholds.length !== 19 || baseline.itemResponses.length !== 16047) {
+// 真实工作簿：口径精确对齐（7255/11/19/16047）；合成示例：只做结构性健全检查。
+if (usingFixture) {
+  if (!baseline.scores.length || !baseline.exams.length || !baseline.thresholds.length) {
+    throw new Error(`fixture baseline looks broken: ${baseline.scores.length}/${baseline.exams.length}/${baseline.thresholds.length}`);
+  }
+} else if (baseline.scores.length !== 7255 || baseline.exams.length !== 11 || baseline.thresholds.length !== 19 || baseline.itemResponses.length !== 16047) {
   throw new Error(`baseline mismatch: ${baseline.scores.length}/${baseline.exams.length}/${baseline.thresholds.length}/${baseline.itemResponses.length}`);
 }
 
