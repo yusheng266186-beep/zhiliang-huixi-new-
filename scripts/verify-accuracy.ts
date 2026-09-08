@@ -13,8 +13,8 @@ if(path) {
    const rows=filterScores(dataset,'51',track), summary=onlineSummary(dataset,'51',rows);
    assert.equal(rows.length,count);assert.equal(summary.topCount,top);assert.equal(summary.undergraduateCount,under);
    const classes=classSummaries(dataset,'51',track);
-   assert.equal(classes.reduce((n,c)=>n+c.topCount,0),top);
-   assert.equal(classes.reduce((n,c)=>n+c.undergraduateCount,0),under);
+   assert.equal(classes.reduce((n,c)=>n+(c.topCount ?? 0),0),top);
+   assert.equal(classes.reduce((n,c)=>n+(c.undergraduateCount ?? 0),0),under);
  }
  const c17=filterScores(dataset,'51','物理类',17);
  assert.equal(c17.length,32);assert.ok(c17.every(r=>r.subjects.物理!==undefined && r.subjects.化学!==undefined && r.subjects.历史===undefined));
@@ -30,10 +30,10 @@ if(path) {
 }
 const exam=dataset.exams.at(-1)!;
 const missing={...dataset,thresholds:[]};
-assert.ok(subjectSummaries(missing,exam,'全部','全部').every(s=>Number.isNaN(s.undergraduateEffectiveRate)));
+assert.ok(subjectSummaries(missing,exam,'全部','全部').every(s=>s.undergraduateEffectiveRate === null));
 assert.ok(!buildExecutiveInsights(missing,exam,'全部','全部').some(i=>i.id==='subject'));
 assert.equal(percentage(onlineSummary(missing,exam,filterScores(missing,exam,'全部')).topRate),'—');
-assert.ok(classSummaries(missing,exam,'全部').every(c=>Number.isNaN(c.topCount)));
+assert.ok(classSummaries(missing,exam,'全部').every(c=>c.topCount === null));
 console.log('Missing thresholds remain unavailable; no false weakest-subject verdict.');
 const source=dataset.scores.find(r=>r.exam===exam)!;
 const mixed={...dataset,scores:[{...source,exam,track:'物理类' as const,subjects:{语文:100}},{...source,exam,name:'synthetic-second',track:'历史类' as const,subjects:{语文:10}}],thresholds:[{exam,track:'物理类' as const,topTotal:500,undergraduateTotal:400,topSubjects:{语文:90},undergraduateSubjects:{语文:80}}]};

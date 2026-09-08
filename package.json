@@ -1,6 +1,6 @@
 {
   "name": "grade-quality-insight",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "private": true,
   "engines": {
     "node": ">=22.13.0"
@@ -12,7 +12,8 @@
     "test:parser": "node --import tsx scripts/verify-parser.ts",
     "test:analytics": "node --import tsx scripts/verify-analytics.ts",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern pages-dist",
-    "test:accuracy": "node --import tsx scripts/verify-accuracy.ts"
+    "test:accuracy": "node --import tsx scripts/verify-accuracy.ts",
+    "test:workbook": "node --import tsx scripts/verify-workbook.ts"
   },
   "dependencies": {
     "docx": "^9.7.1",

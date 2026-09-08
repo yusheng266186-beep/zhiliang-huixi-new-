@@ -1,3 +1,5 @@
+import { finite } from "./metrics";
+import { scoreStateLabel } from "./score-validation";
 import { metric, percentage } from "./format";
 import type { QualityReportModel } from "./report-model";
 
@@ -14,7 +16,7 @@ function downloadBlob(blob: Blob, name: string) {
   window.setTimeout(() => URL.revokeObjectURL(url), 1200);
 }
 
-export async function exportReportWord(model: QualityReportModel): Promise<void> {
+export async function buildReportWord(model: QualityReportModel): Promise<Blob> {
   const { Document, Footer, HeadingLevel, Packer, Paragraph, Table, TableCell, TableRow, TextRun, WidthType } = await import("docx");
   const paragraph = (text: string, bold = false) => new Paragraph({ children: [new TextRun({ text, bold })] });
   const table = (headers: string[], rows: string[][]) => new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: [
@@ -39,12 +41,12 @@ export async function exportReportWord(model: QualityReportModel): Promise<void>
         new Paragraph({ text: "三、班级对标", heading: HeadingLevel.HEADING_1 }),
         table(["班级", "班型", "人数", "均分", "同组差", "同组位次", "一本率", "本科率"], model.classes.map((item) => [`${item.classNo}班`, item.type, String(item.count), item.average.toFixed(1), `${item.averageDelta >= 0 ? "+" : ""}${item.averageDelta.toFixed(1)}`, `${item.peerRank}/${item.peerSize}`, `${percentage(item.topRate)}`, `${percentage(item.undergraduateRate)}`])),
         new Paragraph({ text: "四、学科诊断", heading: HeadingLevel.HEADING_1 }),
-        table(["学科", "参考", "均分", "一本有效率", "本科有效率", "优先级"], model.subjects.map((item) => [item.subject, String(item.count), item.average.toFixed(1), `${metric(item.topEffectiveCount)} / ${percentage(item.topEffectiveRate)}`, `${metric(item.undergraduateEffectiveCount)} / ${percentage(item.undergraduateEffectiveRate)}`, !Number.isFinite(item.undergraduateEffectiveRate) ? "不可判断" : item.undergraduateEffectiveRate < .55 ? "优先补弱" : item.undergraduateEffectiveRate < .75 ? "巩固提升" : "优势保持"])),
+        table(["学科", "参考", "均分", "一本有效率", "本科有效率", "优先级"], model.subjects.map((item) => [item.subject, String(item.count), item.average.toFixed(1), `${metric(item.topEffectiveCount)} / ${percentage(item.topEffectiveRate)}`, `${metric(item.undergraduateEffectiveCount)} / ${percentage(item.undergraduateEffectiveRate)}`, !finite(item.undergraduateEffectiveRate) ? "不可判断" : item.undergraduateEffectiveRate < .55 ? "优先补弱" : item.undergraduateEffectiveRate < .75 ? "巩固提升" : "优势保持"])),
         new Paragraph({ text: "五、临界生清单", heading: HeadingLevel.HEADING_1 }),
-        table(["类型", "班级", "姓名", "总分", "一本差", "本科差", "薄弱学科"], model.critical.slice(0, 100).map((item) => [item.criticalTiers.join("、"), `${item.classNo}班`, item.name, item.total.toFixed(1), safe(item.topDiff)?.toString() ?? "—", safe(item.undergraduateDiff)?.toString() ?? "—", item.weakSubjects.slice(0, 3).map((weak) => `${weak.subject} ${weak.diff.toFixed(1)}`).join("、") || "—"])),
+        table(["类型", "班级", "姓名", "总分", "一本差", "本科差", "薄弱学科"], model.critical.map((item) => [item.criticalTiers.join("、"), `${item.classNo}班`, item.name, item.total.toFixed(1), safe(item.topDiff)?.toString() ?? "—", safe(item.undergraduateDiff)?.toString() ?? "—", item.weakSubjects.slice(0, 3).map((weak) => `${weak.subject} ${weak.diff.toFixed(1)}`).join("、") || "—"])),
         new Paragraph({ text: "六、知识点与小题", heading: HeadingLevel.HEADING_1 }),
         paragraph(`本报告以${model.subject ?? "当前最弱学科"}作为知识点主视图；无可识别小题时保留成绩层结论，并在质检章节说明。`),
-        table(["知识点", "小题数", "答题数", "得分率", "优先级"], model.knowledge.slice(0, 60).map((item) => [item.knowledge, String(item.questionCount), String(item.responseCount), `${percentage(item.rate)}`, item.priority])),
+        table(["知识点", "小题数", "答题数", "得分率", "优先级"], model.knowledge.map((item) => [item.knowledge, String(item.questionCount), String(item.responseCount), `${percentage(item.rate)}`, item.priority])),
         new Paragraph({ text: "七、行动建议", heading: HeadingLevel.HEADING_1 }),
         ...model.recommendations.map((recommendation, index) => paragraph(`${index + 1}. ${recommendation}`)),
         new Paragraph({ text: "八、数据质量与方法", heading: HeadingLevel.HEADING_1 }),
@@ -53,39 +55,83 @@ export async function exportReportWord(model: QualityReportModel): Promise<void>
       ],
     }],
   });
-  downloadBlob(await Packer.toBlob(doc), filename(model, "docx"));
+  return Packer.toBlob(doc);
 }
 
-export async function exportAnalysisExcel(model: QualityReportModel): Promise<void> {
+export async function buildAnalysisExcel(model: QualityReportModel): Promise<Blob> {
   const XLSX = await import("xlsx");
   const book = XLSX.utils.book_new();
   const add = (name: string, rows: unknown[][]) => XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet(rows.map(row=>row.map(v=>typeof v === "number" && !Number.isFinite(v) ? "" : v))), name.slice(0, 31));
   add("分析摘要", [["质量慧析分析摘要"], ["报告", model.title], ["范围", model.scope], ["数据源", model.sourceName], [], ["指标", "数值"], ["参考人数", model.summary.count], ["平均分", model.summary.average], ["中位数", model.summary.median], ["一本上线", model.summary.topCount], ["一本上线率", model.summary.topRate], ["本科上线", model.summary.undergraduateCount], ["本科上线率", model.summary.undergraduateRate], ["一本临界", model.summary.topCriticalCount], ["本科临界", model.summary.undergraduateCriticalCount], [], ["核心发现", "行动建议"], ...model.insights.map((item) => [item.finding, item.action])]);
-  add("学生明细", [["考试", "班级", "姓名", "类别", "总分", "总分来源", "市排名", "校排名", "语文", "数学", "英语", "日语", "物理", "历史", "化学", "生物", "政治", "地理"], ...model.critical.map((student) => [student.exam, student.classNo, student.name, student.track, student.total, student.totalSource ?? "source", student.cityRank ?? "", student.schoolRank ?? "", ...["语文", "数学", "英语", "日语", "物理", "历史", "化学", "生物", "政治", "地理"].map((subject) => student.subjects[subject as keyof typeof student.subjects] ?? "")])]);
+  add("学生明细", [["考试", "班级", "姓名", "类别", "总分", "总分来源", "市排名", "校排名", "语文", "数学", "英语", "日语", "物理", "历史", "化学", "生物", "政治", "地理"], ...model.students.map((student) => [student.exam, student.classNo, student.name, student.track, student.total, student.totalSource ?? "source", student.cityRank ?? "", student.schoolRank ?? "", ...["语文", "数学", "英语", "日语", "物理", "历史", "化学", "生物", "政治", "地理"].map((subject) => student.subjects[subject as keyof typeof student.subjects] ?? "")])]);
   add("班级对标", [["班级", "类别", "班型", "人数", "平均分", "同组", "同组差", "位次", "一本率", "本科率"], ...model.classes.map((item) => [item.classNo, item.track, item.type, item.count, item.average, item.peerGroup, item.averageDelta, `${item.peerRank}/${item.peerSize}`, item.topRate, item.undergraduateRate])]);
   add("学科诊断", [["学科", "参考人数", "平均分", "最高分", "一本有效人数", "一本有效率", "本科有效人数", "本科有效率", "一本有效分", "本科有效分"], ...model.subjects.map((item) => [item.subject, item.count, item.average, item.max, item.topEffectiveCount, item.topEffectiveRate, item.undergraduateEffectiveCount, item.undergraduateEffectiveRate, item.topEffectiveLine ?? "", item.undergraduateEffectiveLine ?? ""])]);
   add("临界生清单", [["类型", "考试", "班级", "姓名", "总分", "一本差", "本科差", "优先学科", "班型"], ...model.critical.map((student) => [student.criticalTiers.join("、"), student.exam, student.classNo, student.name, student.total, student.topDiff ?? "", student.undergraduateDiff ?? "", student.weakSubjects.map((weak) => `${weak.subject} ${weak.diff.toFixed(1)}`).join("、"), student.classType])]);
   add(`${model.subject ?? "知识点"}知识点`, [["知识点", "小题数", "答题数", "得分", "可能得分", "得分率", "优先级"], ...model.knowledge.map((item) => [item.knowledge, item.questionCount, item.responseCount, item.earned, item.possible, item.rate, item.priority])]);
   add("数据质检", [["项目", "结果"], ["综合识别置信度", model.quality.confidence], ["学科完整度", model.quality.subjectCompleteness], ["分数线完整度", model.quality.thresholdCompleteness], ["小题覆盖度", model.quality.itemCoverage], ["重建总分数量", model.quality.reconstructedTotals], ["警告数量", model.quality.warnings], ["错误数量", model.quality.errors], ["可用模块", model.quality.availableModules.join("、")], [], ["方法说明"], ...model.methodology.map((item) => [item])]);
+  add("源表异常明细", [["考试", "班级", "姓名", "字段", "状态", "原值", "工作表", "源行", "源列"], ...model.audit.map(i=>[i.exam,i.classNo,i.name,i.field,i.state === "identity-conflict" ? "成绩冲突" : scoreStateLabel[i.state],i.rawValue,i.source.sheet,i.source.row,i.source.column ?? ""])]);
   const bytes = XLSX.write(book, { bookType: "xlsx", type: "array" });
-  downloadBlob(new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), filename(model, "xlsx"));
+  return new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
 }
 
 export async function exportElementPdf(target: HTMLElement | null, name: string): Promise<void> {
   if (!target) throw new Error("报告预览尚未准备好，请稍后重试。");
   const [{ default: html2canvas }, { jsPDF }] = await Promise.all([import("html2canvas"), import("jspdf")]);
-  const canvas = await html2canvas(target, { scale: 2, backgroundColor: "#ffffff", useCORS: true });
   const pdf = new jsPDF({ unit: "mm", format: "a4", orientation: "portrait" });
-  const pageWidth = 210, pageHeight = 297, margin = 10, contentWidth = pageWidth - margin * 2, imageHeight = canvas.height * contentWidth / canvas.width, usableHeight = pageHeight - margin * 2;
-  let offset = 0, page = 0;
-  while (offset < imageHeight) {
-    if (page > 0) pdf.addPage();
-    const sourceY = offset * canvas.width / contentWidth;
-    const sourceHeight = Math.min(usableHeight * canvas.width / contentWidth, canvas.height - sourceY);
-    const slice = document.createElement("canvas"); slice.width = canvas.width; slice.height = Math.ceil(sourceHeight);
-    slice.getContext("2d")?.drawImage(canvas, 0, sourceY, canvas.width, sourceHeight, 0, 0, slice.width, slice.height);
-    pdf.addImage(slice.toDataURL("image/jpeg", .92), "JPEG", margin, margin, contentWidth, slice.height * contentWidth / slice.width);
-    offset += usableHeight; page += 1;
-  }
+  // Render one bounded page at a time; tables break between rows and repeat headers.
+  const host = document.createElement("div");
+  Object.assign(host.style, { position: "absolute", left: "-10000px", top: "0", width: "794px", background: "white" });
+  document.body.appendChild(host);
+  let page = target.cloneNode(false) as HTMLElement;
+  page.removeAttribute("id");
+  Object.assign(page.style, { width: "794px", minHeight: "0", padding: "24px", boxSizing: "border-box", margin: "0" });
+  host.appendChild(page);
+  const limit = 1120;
+  let pageNumber = 0;
+  const flush = async () => {
+    if (!page.children.length) return;
+    const canvas = await html2canvas(page, { scale: 1.5, backgroundColor: "#ffffff", useCORS: true });
+    if (pageNumber++) pdf.addPage();
+    const height = canvas.height * 190 / canvas.width;
+    pdf.addImage(canvas.toDataURL("image/jpeg", .92), "JPEG", 10, 10, 190, Math.min(height, 277));
+    pdf.setFontSize(8); pdf.text(String(pageNumber), 105, 293, { align: "center" });
+    canvas.width = 0; canvas.height = 0;
+    const next = page.cloneNode(false) as HTMLElement;
+    page.replaceWith(next); page = next;
+  };
+  try {
+    for (const child of Array.from(target.children)) {
+      if (child.tagName === "TABLE") {
+        const source = child as HTMLTableElement;
+        const makeTable = () => {
+          const table = source.cloneNode(false) as HTMLTableElement;
+          table.style.tableLayout = "fixed";
+          if (source.tHead) table.appendChild(source.tHead.cloneNode(true));
+          table.appendChild(document.createElement("tbody")); page.appendChild(table); return table;
+        };
+        let table = makeTable();
+        for (const row of Array.from(source.tBodies).flatMap(body=>Array.from(body.rows))) {
+          const copy = row.cloneNode(true);
+          table.tBodies[0].appendChild(copy);
+          if (page.getBoundingClientRect().height > limit) {
+            copy.parentNode?.removeChild(copy);
+            if (!table.tBodies[0].rows.length) table.remove();
+            await flush(); table = makeTable(); table.tBodies[0].appendChild(copy);
+          }
+        }
+      } else {
+        const copy = child.cloneNode(true) as HTMLElement;
+        page.appendChild(copy);
+        if (page.getBoundingClientRect().height > limit && page.children.length > 1) {
+          copy.remove(); await flush(); page.appendChild(copy);
+        }
+      }
+    }
+    await flush();
+  } finally { host.remove(); }
+
   pdf.save(name.endsWith(".pdf") ? name : `${name}.pdf`);
 }
+
+export async function exportReportWord(model: QualityReportModel) { downloadBlob(await buildReportWord(model), filename(model, "docx")); }
+export async function exportAnalysisExcel(model: QualityReportModel) { downloadBlob(await buildAnalysisExcel(model), filename(model, "xlsx")); }

@@ -1,3 +1,4 @@
+import type { RateMetric } from "./metrics";
 export type Track = "物理类" | "历史类" | "未配置";
 
 export type SubjectName =
@@ -20,6 +21,10 @@ export type ClassProfile = {
   label: string;
 };
 
+export type ScoreCellState = "valid" | "missing" | "absent" | "deferred" | "not-applicable" | "formula-error" | "invalid";
+export type SourceLocation = { sheet: string; row: number; column?: number };
+export type ScoreIssue = { school?: string; exam: string; classNo: number | null; name: string; field: string; state: ScoreCellState | "identity-conflict"; rawValue: string; source: SourceLocation };
+export type ScoreConflict = { key: string; candidates: StudentScore[]; resolution: "excluded" | "rank-only" };
 export type StudentScore = {
   exam: string;
   rawExam: string;
@@ -30,6 +35,8 @@ export type StudentScore = {
   classType: string;
   combination: string;
   total: number;
+  source?: SourceLocation;
+  subjectStates?: Partial<Record<SubjectName, ScoreCellState>>;
   totalSource?: "source" | "reconstructed";
   cityRank: number | null;
   schoolRank: number | null;
@@ -110,37 +117,44 @@ export type GradeDataset = {
   issues: ImportIssue[];
   sheets: string[];
   profile?: DataProfile;
+  scoreIssues?: ScoreIssue[];
+  scoreConflicts?: ScoreConflict[];
+  rejectedCount?: number;
 };
 
 export type ClassSummary = {
+  topMetric: RateMetric;
+  undergraduateMetric: RateMetric;
   classNo: number;
   label: string;
   track: Track;
   type: string;
   count: number;
   average: number;
-  topCount: number;
-  undergraduateCount: number;
-  topRate: number;
-  undergraduateRate: number;
+  topCount: number | null;
+  undergraduateCount: number | null;
+  topRate: number | null;
+  undergraduateRate: number | null;
   subjectAverages: Partial<Record<SubjectName, number>>;
 };
 
 export type SubjectSummary = {
+  topMetric: RateMetric;
+  undergraduateMetric: RateMetric;
   topEligible: number;
   undergraduateEligible: number;
   subject: SubjectName;
   count: number;
   average: number;
   max: number;
-  topEffectiveCount: number;
-  topEffectiveRate: number;
+  topEffectiveCount: number | null;
+  topEffectiveRate: number | null;
   topEffectiveLine: number | null;
-  undergraduateEffectiveCount: number;
-  undergraduateEffectiveRate: number;
+  undergraduateEffectiveCount: number | null;
+  undergraduateEffectiveRate: number | null;
   undergraduateEffectiveLine: number | null;
   /** 兼容旧页面：等同于本科有效口径。 */
-  effectiveCount: number;
-  effectiveRate: number;
+  effectiveCount: number | null;
+  effectiveRate: number | null;
   effectiveLine: number | null;
 };
