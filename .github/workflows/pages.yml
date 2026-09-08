@@ -21,12 +21,18 @@ jobs:
       - name: Checkout legacy source
         uses: actions/checkout@v4
         with:
+          ref: 96f7b4239dfb7883323616fbc40a6003c9668a7e
           path: legacy
       - name: Checkout v2 source
         uses: actions/checkout@v4
         with:
-          ref: agent/v2-ui-release
+          ref: 1f547f848e3a258814a6c4b5f0343ac1b0a4c088
           path: v2-source
+      - name: Checkout accuracy v1.1 source
+        uses: actions/checkout@v4
+        with:
+          ref: dfa268655ac0957907ae89af532213e0a1222bc4
+          path: accuracy-source
       - name: Use Node.js 22
         uses: actions/setup-node@v4
         with:
@@ -57,11 +63,21 @@ jobs:
             rm -rf pages-dist/pages-static
           fi
           if [ -f scripts/check-pages-build.mjs ]; then node scripts/check-pages-build.mjs; else echo "v2 branch has no smoke check script, skipping"; fi
+      - name: Build accuracy v1.1 site
+        working-directory: accuracy-source
+        run: |
+          npm ci
+          npx tsc --noEmit
+          npm run lint
+          npm run test:accuracy
+          npm run build:pages
+          node scripts/check-pages-build.mjs
       - name: Compose versioned Pages artifact
         run: |
-          mkdir -p pages-artifact/v2
+          mkdir -p pages-artifact/v2 pages-artifact/accuracy-v1.1
           cp -a legacy/pages-dist/. pages-artifact/
           cp -a v2-source/pages-dist/. pages-artifact/v2/
+          cp -a accuracy-source/pages-dist/. pages-artifact/accuracy-v1.1/
           touch pages-artifact/.nojekyll
       - name: Configure Pages
         uses: actions/configure-pages@v5
