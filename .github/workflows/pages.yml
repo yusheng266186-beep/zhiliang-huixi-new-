@@ -36,7 +36,7 @@ jobs:
       - name: Checkout accuracy v1.2 source
         uses: actions/checkout@v4
         with:
-          ref: d6cef6c17b611ba9bbd46faf1152f9f670595525
+          ref: 6f70eab4e6e9ecadc00149b1387103b45b5d8e2b
           path: accuracy-v12-source
       - name: Use Node.js 22
         uses: actions/setup-node@v4
