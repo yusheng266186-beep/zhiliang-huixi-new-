@@ -1,3 +1,9 @@
+# 原表针对性优化 v1.2.0
+
+独立页面：https://yusheng266186-beep.github.io/zhiliang-huixi-new-/accuracy-v1.2/
+
+[本轮实施记录、原表验收与后续操作清单](docs/WORKBOOK-OPTIMIZATION-v1.2.md)。新版本需单独导入工作簿。
+
 # 数据准确性修复版 v1.1.0
 
 独立地址： https://yusheng266186-beep.github.io/zhiliang-huixi-new-/accuracy-v1.1/

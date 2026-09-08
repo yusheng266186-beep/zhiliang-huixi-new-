@@ -481,7 +481,7 @@ export default function Home() {
   return (
     <div className="app-shell">
       <aside className={menuOpen ? "sidebar open" : "sidebar"}>
-        <div className="brand"><div className="brand-mark"><School /></div><div><strong>质量慧析 · 1.1</strong><span>ACADEMIC INTELLIGENCE</span></div><button className="mobile-close" onClick={() => setMenuOpen(false)}><X /></button></div>
+        <div className="brand"><div className="brand-mark"><School /></div><div><strong>质量慧析 · 1.2</strong><span>ACADEMIC INTELLIGENCE</span></div><button className="mobile-close" onClick={() => setMenuOpen(false)}><X /></button></div>
         <nav>{(["全局分析", "精细诊断", "输出与设置"] as const).map((group) => <div className="nav-group" key={group}><span className="nav-group-label">{group}</span>{navItems.filter((item) => item.group === group).map(({ id, label, icon: Icon }) => <button key={id} className={view === id ? "active" : ""} onClick={() => { setView(id); setMenuOpen(false); }}><Icon size={17} strokeWidth={1.8} /><span>{label}</span>{id === "online" && critical.length > 0 && <em>{critical.length}</em>}</button>)}</div>)}</nav>
         <div className="sidebar-footer"><div className="source-icon"><FileSpreadsheet size={17} /></div><div><span><i /> 当前数据源</span><b title={dataset.sourceName}>{dataset.sourceName}</b></div></div>
       </aside>
