@@ -1,4 +1,6 @@
+import { percentage } from "./format";
 import {
+  onlineSummary,
   average,
   buildExecutiveInsights,
   classBenchmarks,
@@ -67,12 +69,12 @@ const focusByType: Record<ReportType, string> = {
   上线与临界生: "回答每一位临界学生距离目标线的分数差与最短板学科。",
 };
 
-const pct = (value: number) => `${(value * 100).toFixed(1)}%`;
+const pct = percentage;
 
 const recommendationsFor = (model: Pick<QualityReportModel, "insights" | "segments" | "subjects" | "knowledge" | "classes" | "critical">): string[] => {
   const recommendations: string[] = [];
   model.insights.forEach((insight) => recommendations.push(`${insight.title}：${insight.action}`));
-  const weakest = [...model.subjects].sort((a, b) => a.undergraduateEffectiveRate - b.undergraduateEffectiveRate)[0];
+  const weakest = model.subjects.filter(s => Number.isFinite(s.undergraduateEffectiveRate)).sort((a, b) => a.undergraduateEffectiveRate - b.undergraduateEffectiveRate)[0];
   if (weakest) recommendations.push(`学科行动：将${weakest.subject}列为首轮集体备课主题，先处理有效上线率${pct(weakest.undergraduateEffectiveRate)}且覆盖人数高的共性失分。`);
   const knowledge = model.knowledge.filter((item) => item.priority === "优先补弱").slice(0, 3);
   if (knowledge.length) recommendations.push(`知识点行动：优先复盘${knowledge.map((item) => item.knowledge).join("、")}，用小题—知识点—学生三层清单闭环。`);
@@ -87,29 +89,27 @@ export function buildQualityReport(dataset: GradeDataset, options: { exam: strin
   const { exam, track, classNo, reportType, subject } = options;
   const rows = filterScores(dataset, exam, track, classNo);
   const stats = descriptiveStats(rows.map((row) => row.total));
-  const lines = rows.map((row) => ({ top: dataset.thresholds.find((threshold) => threshold.exam === exam && threshold.track === row.track)?.topTotal, undergraduate: dataset.thresholds.find((threshold) => threshold.exam === exam && threshold.track === row.track)?.undergraduateTotal }));
-  const topCount = rows.filter((_, index) => typeof lines[index]?.top === "number" && rows[index]!.total >= lines[index]!.top!).length;
-  const undergraduateCount = rows.filter((_, index) => typeof lines[index]?.undergraduate === "number" && rows[index]!.total >= lines[index]!.undergraduate!).length;
+  const online = onlineSummary(dataset, exam, rows);
+  const {topCount, undergraduateCount} = online;
   const critical = criticalStudents(dataset, exam, track, classNo);
   const classes = classBenchmarks(dataset, exam, track).filter((item) => classNo === "全部" || item.classNo === classNo);
   const subjects = subjectSummaries(dataset, exam, track, classNo);
-  const knowledgeSubject = subject ?? subjects.sort((a, b) => a.undergraduateEffectiveRate - b.undergraduateEffectiveRate)[0]?.subject ?? "语文";
+  const knowledgeSubject = subject ?? subjects.filter(s=>Number.isFinite(s.undergraduateEffectiveRate)).sort((a, b) => a.undergraduateEffectiveRate - b.undergraduateEffectiveRate)[0]?.subject ?? "语文";
   const knowledge = knowledgeSummaries(dataset, exam, knowledgeSubject, track, classNo);
   const segments = segmentSummary(dataset, exam, track, classNo);
   const insights = buildExecutiveInsights(dataset, exam, track, classNo);
-  const trend = dataset.exams.map((examName) => {
-    const examRows = filterScores(dataset, examName, track, classNo);
-    const examThreshold = (row: typeof examRows[number]) => dataset.thresholds.find((threshold) => threshold.exam === examName && threshold.track === row.track);
-    return { exam: examName, count: examRows.length, average: average(examRows.map((row) => row.total)), topCount: examRows.filter((row) => typeof examThreshold(row)?.topTotal === "number" && row.total >= examThreshold(row)!.topTotal!).length, undergraduateCount: examRows.filter((row) => typeof examThreshold(row)?.undergraduateTotal === "number" && row.total >= examThreshold(row)!.undergraduateTotal!).length };
-  });
+  const trend = dataset.exams.slice(0, dataset.exams.indexOf(exam)+1).map(examName => {
+    const examRows = filterScores(dataset,examName,track,classNo), summary = onlineSummary(dataset,examName,examRows);
+    return { exam: examName, count: examRows.length, average: average(examRows.map(r=>r.total)), topCount: summary.topCount, undergraduateCount: summary.undergraduateCount };
+  }).filter(r=>r.count>0);
   const profile = dataset.profile;
   const warningCount = dataset.issues.filter((issue) => issue.level === "warning").length;
   const errorCount = dataset.issues.filter((issue) => issue.level === "error").length;
-  const availableModules = (profile?.capabilities ?? []).filter((item) => item.available).map((item) => item.label);
-  const quality = { confidence: profile?.overallConfidence ?? 0, subjectCompleteness: profile?.subjectCompleteness ?? 0, thresholdCompleteness: profile?.thresholdCompleteness ?? 0, itemCoverage: profile?.itemCoverage ?? 0, reconstructedTotals: profile?.reconstructedTotals ?? 0, warnings: warningCount, errors: errorCount, availableModules };
-  const summary = { count: rows.length, average: stats.average, median: stats.median, topCount, topRate: rows.length ? topCount / rows.length : 0, undergraduateCount, undergraduateRate: rows.length ? undergraduateCount / rows.length : 0, topCriticalCount: critical.filter((item) => item.criticalTiers.includes("一本")).length, undergraduateCriticalCount: critical.filter((item) => item.criticalTiers.includes("本科")).length };
+  const availableModules = (profile?.capabilities ?? []).filter((item) => item.id === "items" ? dataset.itemResponses.some(r=>r.exam===exam && rows.some(s=>s.classNo===r.classNo && s.name===r.name)) : item.available).map((item) => item.label);
+  const quality = { confidence: profile?.overallConfidence ?? 0, subjectCompleteness: profile?.subjectCompleteness ?? 0, thresholdCompleteness: profile?.thresholdCompleteness ?? 0, itemCoverage: rows.length ? rows.filter(s => dataset.itemResponses.some(r=>r.exam===exam && r.classNo===s.classNo && r.name===s.name)).length/rows.length : 0, reconstructedTotals: profile?.reconstructedTotals ?? 0, warnings: warningCount, errors: errorCount, availableModules };
+  const summary = { count: rows.length, average: stats.average, median: stats.median, topCount, topRate: online.topRate, undergraduateCount, undergraduateRate: online.undergraduateRate, topCriticalCount: critical.filter((item) => item.criticalTiers.includes("一本")).length, undergraduateCriticalCount: critical.filter((item) => item.criticalTiers.includes("本科")).length };
   const model: QualityReportModel = {
-    reportType, exam, track, classNo, subject, title: `${exam} · ${reportType}`, focusStatement: focusByType[reportType], scope: `${track}${classNo === "全部" ? " · 全部班级" : ` · ${classNo}班`}`, generatedAt: new Date().toISOString(), summary, stats, distribution: distributionBins(rows.map((row) => row.total)), segments, classes, subjects, critical, knowledge, insights, recommendations: [], trend, quality, methodology: ["以学生基础表中可识别的考试、班级、姓名和总分作为主键。", "总分优先采用源表总分；缺失时仅在至少4门有效学科存在时重建，并标记来源。", "学科均值只使用该学科的有效成绩，缺失学科不按0分进入分母。", "上线口径按考试与类别匹配一本/特控线、本科线；未配置分数线的指标显示为不可用。", "班级对标优先按类别与班型建立同类组，样本不足时退回同类别比较。", "小题得分率按可识别满分计算；源表缺失满分时以观察到的最高得分推断并在质检中提示。"], sourceName: dataset.sourceName,
+    reportType, exam, track, classNo, subject, title: `${exam} · ${reportType}`, focusStatement: focusByType[reportType], scope: `${track}${classNo === "全部" ? " · 全部班级" : ` · ${classNo}班`}`, generatedAt: new Date().toISOString(), summary, stats, distribution: distributionBins(rows.map((row) => row.total)), segments, classes, subjects, critical, knowledge, insights, recommendations: [], trend, quality, methodology: [`本次一本指标可计算${online.topEligible}人，本科指标可计算${online.undergraduateEligible}人；比率分母仅包含有适用分数线且总分非重建者。`, "历次原始均分不等于教学增值；考试难度、满分及赋分规则需核验。","以学生基础表中可识别的考试、班级、姓名和总分作为主键。", "总分优先采用源表总分；缺失时仅在至少4门有效学科存在时重建，并标记来源。", "学科均值只使用该学科的有效成绩，缺失学科不按0分进入分母。", "上线口径按考试与类别匹配一本/特控线、本科线；未配置分数线的指标显示为不可用。", "班级对标优先按类别与班型建立同类组，样本不足时退回同类别比较。", "小题得分率按可识别满分计算；源表缺失满分时不计算正式得分率，也不生成补弱结论。"], sourceName: dataset.sourceName,
   };
   model.recommendations = recommendationsFor(model);
   return model;

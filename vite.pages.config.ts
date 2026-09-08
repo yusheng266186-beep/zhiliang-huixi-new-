@@ -10,6 +10,7 @@ export default defineConfig({
   root: resolve(projectRoot, "pages-static"),
   base: "./",
   plugins: [react()],
+  worker: { format: "es" },
   publicDir: resolve(projectRoot, "public"),
   build: {
     outDir: resolve(projectRoot, "pages-dist"),

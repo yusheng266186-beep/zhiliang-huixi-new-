@@ -127,6 +127,8 @@ export type ClassSummary = {
 };
 
 export type SubjectSummary = {
+  topEligible: number;
+  undergraduateEligible: number;
   subject: SubjectName;
   count: number;
   average: number;

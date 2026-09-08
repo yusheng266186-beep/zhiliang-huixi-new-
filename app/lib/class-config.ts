@@ -16,6 +16,8 @@ export const CLASS_PROFILES: Record<number, ClassProfile> = {
   13: { classNo: 13, track: "历史类", combination: "历政地", type: "平行班", label: "13班 · 历政地平行班" },
   14: { classNo: 14, track: "历史类", combination: "历政地", type: "平行班", label: "14班 · 历政地平行班" },
   15: { classNo: 15, track: "历史类", combination: "历政地", type: "体育班", label: "15班 · 历政地体育班" },
+  17: { classNo: 17, track: "物理类", combination: "物化生", type: "待配置", label: "17班 · 物化生（班型待配置）" },
+  18: { classNo: 18, track: "历史类", combination: "历政地", type: "待配置", label: "18班 · 历政地（班型待配置）" },
   16: { classNo: 16, track: "历史类", combination: "艺术", type: "美术班", label: "16班 · 美术班" },
 };
 
@@ -29,7 +31,7 @@ export const getClassProfile = (classNo: number, exam = ""): ClassProfile => {
   return {
     classNo,
     track,
-    combination: "待配置",
+    combination: track === "物理类" ? "物化生" : track === "历史类" ? "历政地" : "待配置",
     type: "待配置",
     label: `${classNo}班 · 待配置`,
   };
@@ -40,6 +42,8 @@ export const relevantSubjects = (profile: ClassProfile): SubjectName[] => {
   if (profile.combination === "物化生") return ["语文", "数学", language, "物理", "化学", "生物"];
   if (profile.combination === "物化地") return ["语文", "数学", language, "物理", "化学", "地理"];
   if (profile.combination === "历政地") return ["语文", "数学", language, "历史", "政治", "地理"];
+  if (profile.track === "物理类") return ["语文", "数学", language, "物理", "化学", "生物"];
+  if (profile.track === "未配置") return ["语文", "数学", language];
   return ["语文", "数学", language, "历史", "政治", "地理"];
 };
 
@@ -48,3 +52,10 @@ export const normalizeExam = (value: unknown): string => {
   return raw.replace(/[物历]$/, "").trim();
 };
 
+
+// Only known school exam codes are ordered. Unknown names retain source order.
+export const orderExams = (exams: string[]): string[] => {
+  const known = ["入口", "1册", "21", "22", "2册", "31", "32", "33", "3册", "41", "4半", "4月", "43", "4册", "51"];
+  const knownSlots = exams.filter(e => known.includes(e)).sort((a,b) => known.indexOf(a)-known.indexOf(b));
+  return exams.map(e => known.includes(e) ? knownSlots.shift()! : e);
+};

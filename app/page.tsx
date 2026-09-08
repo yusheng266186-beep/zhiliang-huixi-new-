@@ -43,10 +43,11 @@ const SubjectDiagnosisChart = lazy(() => import("./components/charts").then((m) 
 const ItemRateChart = lazy(() => import("./components/charts").then((m) => ({ default: m.ItemRateChart })));
 const GradeTrendChart = lazy(() => import("./components/charts").then((m) => ({ default: m.GradeTrendChart })));
 const chartFallback = <div className="empty-state"><p>图表加载中…</p></div>;
-import { average, buildExecutiveInsights, classBenchmarks, classSummaries, criticalStudents, descriptiveStats, distributionBins, filterScores, getThreshold, knowledgeSummaries, segmentSummary, subjectSummaries } from "./lib/analytics";
+import { onlineSummary, matchedChange, average, buildExecutiveInsights, classBenchmarks, classSummaries, criticalStudents, descriptiveStats, distributionBins, filterScores, getThreshold, knowledgeSummaries, segmentSummary, subjectSummaries } from "./lib/analytics";
 import { createDemoDataset } from "./lib/demo";
 import { exportAnalysisExcel, exportElementPdf, exportReportWord } from "./lib/exporters";
-import { parseGradeWorkbook } from "./lib/parser";
+import { parseInWorker } from "./lib/import-client";
+import { metric, percentage } from "./lib/format";
 import { buildQualityReport } from "./lib/report-model";
 import { loadLatestDataset, saveLatestDataset } from "./lib/storage";
 import type { GradeDataset, StudentScore, SubjectName, Track } from "./lib/types";
@@ -69,8 +70,8 @@ const navItems: Array<{ id: ViewId; label: string; icon: typeof LayoutDashboard;
 ];
 
 const SEGMENT_COLORS: Record<string, string> = { high: "#5B5BD6", top: "#7C73E6", "top-critical": "#F59E0B", undergraduate: "#10B981", "undergraduate-critical": "#34D399", foundation: "#94A3B8", unclassified: "#CBD5E1" };
-const format1 = (value: number) => value.toFixed(1);
-const percent = (value: number) => `${(value * 100).toFixed(1)}%`;
+const format1 = (value: number) => metric(value, 1);
+const percent = percentage;
 const cnDate = (iso: string) => {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return "时间未知";
@@ -129,8 +130,8 @@ const ReportBody = memo(function ReportBody({ dataset, exam, track, classNo, rep
       <div className="report-kpis">
         <div><span>参考人数</span><b>{summary.count}</b></div>
         <div><span>平均分 / 中位数</span><b>{format1(summary.average)} / {format1(summary.median)}</b></div>
-        <div className="report-tier-top"><span>特控/一本上线</span><b>{summary.topCount} <small>{percent(summary.topRate)}</small></b></div>
-        <div className="report-tier-undergraduate"><span>本科上线</span><b>{summary.undergraduateCount} <small>{percent(summary.undergraduateRate)}</small></b></div>
+        <div className="report-tier-top"><span>特控/一本上线</span><b>{metric(summary.topCount)} <small>{percent(summary.topRate)}</small></b></div>
+        <div className="report-tier-undergraduate"><span>本科上线</span><b>{metric(summary.undergraduateCount)} <small>{percent(summary.undergraduateRate)}</small></b></div>
       </div>
       <h2>一、总体情况</h2>
       <p>本次纳入分析学生{summary.count}人，成绩中位数{format1(summary.median)}分，四分位区间{format1(report.stats.p25)}—{format1(report.stats.p75)}分。一本线下20分以内临界学生{summary.topCriticalCount}人，本科线下20分以内临界学生{summary.undergraduateCriticalCount}人。</p>
@@ -139,12 +140,12 @@ const ReportBody = memo(function ReportBody({ dataset, exam, track, classNo, rep
       <div className="report-insights">{insights.map((insight) => <div key={insight.id} className={insight.tone}><b>{insight.title}</b><span>{insight.finding}</span><small>{insight.action}</small></div>)}</div>
       <h2>三、班级表现</h2>
       <table><thead><tr><th>班级</th><th>班型</th><th>人数</th><th>平均分</th><th>一本上线</th><th>本科上线</th></tr></thead>
-        <tbody>{classes.map((item) => <tr key={item.classNo}><td>{item.classNo}班</td><td>{item.type}</td><td>{item.count}</td><td>{format1(item.average)} <small className={item.averageDelta >= 0 ? "positive" : "negative"}>{item.averageDelta >= 0 ? "+" : ""}{format1(item.averageDelta)}</small></td><td>{item.topCount} / {percent(item.topRate)}</td><td>{item.undergraduateCount} / {percent(item.undergraduateRate)}</td></tr>)}</tbody>
+        <tbody>{classes.map((item) => <tr key={item.classNo}><td>{item.classNo}班</td><td>{item.type}</td><td>{item.count}</td><td>{format1(item.average)} <small className={item.averageDelta >= 0 ? "positive" : "negative"}>{item.averageDelta >= 0 ? "+" : ""}{format1(item.averageDelta)}</small></td><td>{metric(item.topCount)} / {percent(item.topRate)}</td><td>{metric(item.undergraduateCount)} / {percent(item.undergraduateRate)}</td></tr>)}</tbody>
       </table>
       <h2>四、学科诊断</h2>
-      <p>{subjects.length ? `当前可比学科中，${[...subjects].sort((a, b) => b.undergraduateEffectiveRate - a.undergraduateEffectiveRate)[0]!.subject}本科有效率最高，${[...subjects].sort((a, b) => a.undergraduateEffectiveRate - b.undergraduateEffectiveRate)[0]!.subject}最低。` : "暂无有效学科分数据"}</p>
+      <p>有效率仅针对有对应学科分数线的学生计算；缺失分数线不参与强弱判断。</p>
       <table><thead><tr><th>学科</th><th>参考人数</th><th>平均分</th><th>一本有效人数/率</th><th>本科有效人数/率</th></tr></thead>
-        <tbody>{subjects.map((item) => <tr key={item.subject}><td>{item.subject}</td><td>{item.count}</td><td>{format1(item.average)}</td><td>{item.topEffectiveCount} / {percent(item.topEffectiveRate)}</td><td>{item.undergraduateEffectiveCount} / {percent(item.undergraduateEffectiveRate)}</td></tr>)}</tbody>
+        <tbody>{subjects.map((item) => <tr key={item.subject}><td>{item.subject}</td><td>{item.count}</td><td>{format1(item.average)}</td><td>{metric(item.topEffectiveCount)} / {percent(item.topEffectiveRate)}（可算{item.topEligible}人）</td><td>{metric(item.undergraduateEffectiveCount)} / {percent(item.undergraduateEffectiveRate)}（可算{item.undergraduateEligible}人）</td></tr>)}</tbody>
       </table>
       <h2>五、临界生关注</h2>
       <p>建议班主任与任课教师重点关注以下靠线学生，优先补强其差距最大的学科。</p>
@@ -180,7 +181,7 @@ export default function Home() {
     loadLatestDataset().then((saved) => {
       if (saved) {
         setDataset(saved);
-        setExam(saved.exams.includes("4册") ? "4册" : saved.exams.at(-1) ?? "");
+        setExam(saved.exams.includes(localStorage.getItem("accuracy-v1.1-exam") ?? "") ? localStorage.getItem("accuracy-v1.1-exam")! : saved.exams.at(-1) ?? "");
       }
     }).catch(() => undefined);
   }, []);
@@ -200,16 +201,10 @@ export default function Home() {
   const executiveInsights = useMemo(() => buildExecutiveInsights(dataset, exam, track, classNo), [dataset, exam, track, classNo]);
   const knowledgeData = useMemo(() => knowledgeSummaries(dataset, exam, activeSubject, track, classNo), [dataset, exam, activeSubject, track, classNo]);
   const gradeAverage = average(activeScores.map((row) => row.total));
-  const topCount = activeScores.filter((row) => {
-    const line = getThreshold(dataset, exam, row.track)?.topTotal;
-    return typeof line === "number" && row.total >= line;
-  }).length;
-  const undergraduateCount = activeScores.filter((row) => {
-    const line = getThreshold(dataset, exam, row.track)?.undergraduateTotal;
-    return typeof line === "number" && row.total >= line;
-  }).length;
-  const expectedSubjectCells = activeScores.reduce((sum, row) => sum + relevantSubjects(getClassProfile(row.classNo)).length, 0);
-  const presentSubjectCells = activeScores.reduce((sum, row) => sum + relevantSubjects(getClassProfile(row.classNo)).filter((item) => typeof row.subjects[item] === "number").length, 0);
+  const online = onlineSummary(dataset, exam, activeScores);
+  const { topCount, undergraduateCount } = online;
+  const expectedSubjectCells = activeScores.reduce((sum, row) => sum + relevantSubjects(getClassProfile(row.classNo, row.rawExam)).length, 0);
+  const presentSubjectCells = activeScores.reduce((sum, row) => sum + relevantSubjects(getClassProfile(row.classNo, row.rawExam)).filter((item) => typeof row.subjects[item] === "number").length, 0);
   const subjectCompleteness = expectedSubjectCells ? presentSubjectCells / expectedSubjectCells : 0;
   const activeTracks = [...new Set(activeScores.map((row) => row.track))];
   const completeThresholdTracks = activeTracks.filter((item) => {
@@ -223,34 +218,21 @@ export default function Home() {
   const classOptions = [...new Set(dataset.scores.filter((row) => row.exam === exam && (track === "全部" || row.track === track)).map((row) => row.classNo))].sort((a, b) => a - b);
   const searchedStudents = activeScores.filter((row) => !studentQuery || row.name.includes(studentQuery)).slice(0, 80);
 
-  const historyData = dataset.exams.map((examName) => {
-    const rows = filterScores(dataset, examName, track, classNo);
-    return {
-      exam: examName,
-      average: Number(average(rows.map((row) => row.total)).toFixed(1)),
-      top: rows.filter((row) => {
-        const line = getThreshold(dataset, examName, row.track)?.topTotal;
-        return typeof line === "number" && row.total >= line;
-      }).length,
-      undergraduate: rows.filter((row) => {
-        const line = getThreshold(dataset, examName, row.track)?.undergraduateTotal;
-        return typeof line === "number" && row.total >= line;
-      }).length,
-    };
-  });
-
-  const itemSourceSubject: SubjectName = activeSubject === "日语"
-    ? "英语"
-    : activeSubject === "地理" && (classNo === 9 || (classNo === "全部" && track === "物理类"))
-      ? "生物"
-      : activeSubject;
+  const historyData = dataset.exams.slice(0, dataset.exams.indexOf(exam)+1).map((examName) => {
+    const rows = filterScores(dataset, examName, track, classNo), summary = onlineSummary(dataset, examName, rows);
+    return { exam: examName, count: rows.length, average: rows.length ? average(rows.map(r=>r.total)) : Number.NaN, top: summary.topCount, undergraduate: summary.undergraduateCount };
+  }).filter(r=>r.count>0);
+  const comparison = matchedChange(dataset, exam, track, classNo);
+  const itemSourceSubject: SubjectName = activeSubject;
   const itemKey = `${itemSourceSubject}::${exam}`;
   const questionBank = (dataset.questionBanks ?? {})[itemKey] ?? [];
-  const itemRows = (dataset.itemResponses ?? []).filter((row) => row.subject === activeSubject && row.exam === exam && (classNo === "全部" || row.classNo === classNo));
+  const allowedItemStudents = new Set(activeScores.map(r => `${r.classNo}::${r.name}`));
+  const itemRows = (dataset.itemResponses ?? []).filter(row => row.subject === activeSubject && row.exam === exam && allowedItemStudents.has(`${row.classNo}::${row.name}`));
+  const currentItemCoverage = activeScores.length ? new Set((dataset.itemResponses ?? []).filter(r => r.exam === exam && allowedItemStudents.has(`${r.classNo}::${r.name}`)).map(r => `${r.classNo}::${r.name}`)).size / activeScores.length : 0;
   const itemStats = itemRows.length ? questionBank.map((question, index) => {
     const values = itemRows.map((row) => row.scores[index]).filter((value): value is number => typeof value === "number");
-    const avg = average(values);
-    return { question: question.question, knowledge: question.knowledge || "未标注", maxScore: question.maxScore, maxScoreSource: question.maxScoreSource, average: avg, rate: question.maxScore ? avg / question.maxScore : 0 };
+    const avg = values.length ? average(values) : Number.NaN;
+    return { question: question.question, knowledge: question.knowledge || "未标注", maxScore: question.maxScore, maxScoreSource: question.maxScoreSource, average: avg, rate: values.length && question.maxScore && question.maxScoreSource !== "inferred" && values.every(v => v >= 0 && v <= question.maxScore!) ? avg / question.maxScore : Number.NaN };
   }) : [];
 
   async function handleImport(file?: File) {
@@ -258,10 +240,11 @@ export default function Home() {
     setImporting(true);
     setImportMessage(null);
     try {
-      const parsed = await parseGradeWorkbook(file);
+      const parsed = await parseInWorker(file);
       setDataset(parsed);
-      const defaultExam = parsed.exams.includes("4册") ? "4册" : parsed.exams.at(-1) ?? "";
+      const defaultExam = parsed.exams.at(-1) ?? "";
       setExam(defaultExam);
+      try { localStorage.setItem("accuracy-v1.1-exam", defaultExam); } catch { /* session remains usable */ }
       setTrack("物理类");
       setClassNo("全部");
       setSelectedStudent(null);
@@ -300,16 +283,16 @@ export default function Home() {
           new Paragraph({ text: `${exam}考试 · ${reportType}报告`, heading: HeadingLevel.TITLE }),
           new Paragraph({ children: [new TextRun(`范围：${track}${classNo === "全部" ? " · 全部班级" : ` · ${classNo}班`}　数据来源：${dataset.sourceName}`)] }),
           new Paragraph({ text: "一、总体情况", heading: HeadingLevel.HEADING_1 }),
-          new Paragraph(`参考${rows.length}人，平均分${format1(average(rows.map((row) => row.total)))}分，特控/一本上线${topCount}人，本科上线${undergraduateCount}人；一本临界生${topCriticalRows.length}人，本科临界生${undergraduateCriticalRows.length}人。`),
+          new Paragraph(`参考${rows.length}人，平均分${format1(average(rows.map((row) => row.total)))}分，特控/一本上线${metric(topCount)}人，本科上线${metric(undergraduateCount)}人；一本临界生${topCriticalRows.length}人，本科临界生${undergraduateCriticalRows.length}人。`),
           new Paragraph({ text: "二、班级表现", heading: HeadingLevel.HEADING_1 }),
           new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: [
             new TableRow({ children: ["班级", "班型", "人数", "平均分", "一本上线", "本科上线"].map((value) => new TableCell({ children: [new Paragraph(value)] })) }),
-            ...classes.map((item) => new TableRow({ children: [`${item.classNo}班`, item.type, String(item.count), format1(item.average), String(item.topCount), String(item.undergraduateCount)].map((value) => new TableCell({ children: [new Paragraph(value)] })) })),
+            ...classes.map((item) => new TableRow({ children: [`${item.classNo}班`, item.type, String(item.count), format1(item.average), metric(item.topCount), metric(item.undergraduateCount)].map((value) => new TableCell({ children: [new Paragraph(value)] })) })),
           ] }),
           new Paragraph({ text: "三、学科有效上线", heading: HeadingLevel.HEADING_1 }),
           new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: [
             new TableRow({ children: ["学科", "平均分", "一本有效人数/率", "本科有效人数/率"].map((value) => new TableCell({ children: [new Paragraph(value)] })) }),
-            ...subjectRows.map((item) => new TableRow({ children: [item.subject, format1(item.average), `${item.topEffectiveCount} / ${percent(item.topEffectiveRate)}`, `${item.undergraduateEffectiveCount} / ${percent(item.undergraduateEffectiveRate)}`].map((value) => new TableCell({ children: [new Paragraph(value)] })) })),
+            ...subjectRows.map((item) => new TableRow({ children: [item.subject, format1(item.average), `${metric(item.topEffectiveCount)} / ${percent(item.topEffectiveRate)}`, `${metric(item.undergraduateEffectiveCount)} / ${percent(item.undergraduateEffectiveRate)}`].map((value) => new TableCell({ children: [new Paragraph(value)] })) })),
           ] }),
           new Paragraph({ text: "四、临界生名单", heading: HeadingLevel.HEADING_1 }),
           new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: [
@@ -444,23 +427,23 @@ export default function Home() {
 
   const renderDashboard = () => {
     const rankData = [...currentClassSummaries].sort((a, b) => b.undergraduateRate - a.undergraduateRate).map((item) => ({ name: `${item.classNo}班`, 平均分: Number(item.average.toFixed(1)), 一本率: Number((item.topRate * 100).toFixed(1)), 本科率: Number((item.undergraduateRate * 100).toFixed(1)) }));
-    const pieData = [{ name: "一本上线", value: topCount }, { name: "本科上线（未一本）", value: Math.max(0, undergraduateCount - topCount) }, { name: "本科线下", value: Math.max(0, activeScores.length - undergraduateCount) }];
-    const bestConversionClass = [...currentClassSummaries].sort((a, b) => b.undergraduateRate - a.undergraduateRate)[0];
+    const pieData = online.topEligible === activeScores.length && online.undergraduateEligible === activeScores.length ? [{ name: "一本上线", value: topCount }, { name: "本科上线（未一本）", value: Math.max(0, undergraduateCount - topCount) }, { name: "本科线下", value: Math.max(0, activeScores.length - undergraduateCount) }] : [];
+    const bestConversionClass = currentClassSummaries.filter(c=>Number.isFinite(c.undergraduateRate)).sort((a, b) => b.undergraduateRate - a.undergraduateRate)[0];
     return <>
       <div className="hero-strip">
         <div className="hero-copy"><span className="eyebrow"><i /> EXAM INTELLIGENCE</span><h1>{exam}考试<br /><em>{track}质量驾驶舱</em></h1><p>把复杂成绩转化为清晰决策。从年级概况下钻到班级、学科、学生与小题，每个结论均由导入数据实时重算。</p><div className="hero-meta"><span><ShieldCheck size={14} />本地隐私计算</span><span><Sparkles size={14} />智能洞察已启用</span></div></div>
         <div className="hero-insight">
           <div className="hero-insight-head"><span>LIVE SNAPSHOT</span><i>实时</i></div>
-          <div className="hero-insight-row top"><span>特控 / 一本</span><b>{topCount}</b><small>{percent(activeScores.length ? topCount / activeScores.length : 0)}</small></div>
-          <div className="hero-insight-row undergraduate"><span>本科上线</span><b>{undergraduateCount}</b><small>{percent(activeScores.length ? undergraduateCount / activeScores.length : 0)}</small></div>
+          <div className="hero-insight-row top"><span>特控 / 一本</span><b>{metric(topCount)}</b><small>{percent(online.topRate)}</small></div>
+          <div className="hero-insight-row undergraduate"><span>本科上线</span><b>{metric(undergraduateCount)}</b><small>{percent(online.undergraduateRate)}</small></div>
           <button className="primary-button" onClick={() => fileRef.current?.click()}><Upload size={17} />导入新工作簿<ArrowUpRight size={16} /></button>
         </div>
       </div>
       <div className="stat-grid">
         <StatCard icon={UsersRound} label="参考人数" value={activeScores.length.toLocaleString()} note={`${currentClassSummaries.length}个班级纳入分析`} />
         <StatCard icon={Medal} label="年级平均分" value={format1(gradeAverage)} note={`最高分${activeScores.length ? format1(Math.max(...activeScores.map((row) => row.total))) : "—"}`} tone="teal" />
-        <StatCard icon={Target} label="特控/一本上线" value={`${topCount}人`} note={`上线率${percent(activeScores.length ? topCount / activeScores.length : 0)}`} tone="orange" />
-        <StatCard icon={CheckCircle2} label="本科上线" value={`${undergraduateCount}人`} note={`一本临界${topCritical.length}人 · 本科临界${undergraduateCritical.length}人`} tone="green" />
+        <StatCard icon={Target} label="特控/一本上线" value={`${metric(topCount)}人`} note={`上线率${percent(online.topRate)} · 可算${online.topEligible}人`} tone="orange" />
+        <StatCard icon={CheckCircle2} label="本科上线" value={`${metric(undergraduateCount)}人`} note={`上线率${percent(online.undergraduateRate)} · 可算${online.undergraduateEligible}人`} tone="green" />
       </div>
       <div className={`quality-strip ${warningCount ? "has-warning" : "is-good"}`}>
         <div className="quality-score" style={{ "--quality": `${dataQualityScore * 3.6}deg` } as React.CSSProperties}><ShieldCheck size={19} /><b>{dataQualityScore}</b></div>
@@ -487,10 +470,10 @@ export default function Home() {
           <div className="pie-wrap"><Suspense fallback={chartFallback}><TrackPieChart data={pieData} /></Suspense><div className="pie-center"><b>{activeScores.length}</b><span>总人数</span></div></div>
         </Panel>
         <Panel title="学科有效上线" subtitle="一本 / 本科双口径">
-          <div className="subject-list">{subjects.slice(0, 8).map((item) => <button key={item.subject} onClick={() => { setSubject(item.subject); setView("subjects"); }}><span>{item.subject}</span><div className="dual-progress"><i className="top" style={{ width: `${Math.min(100, item.topEffectiveRate * 100)}%` }} /><i className="undergraduate" style={{ width: `${Math.min(100, item.undergraduateEffectiveRate * 100)}%` }} /></div><b><em>一本{percent(item.topEffectiveRate)}</em><em>本科{percent(item.undergraduateEffectiveRate)}</em></b></button>)}</div>
+          <div className="subject-list">{subjects.slice(0, 8).map((item) => <button key={item.subject} onClick={() => { setSubject(item.subject); setView("subjects"); }}><span>{item.subject}</span><div className="dual-progress"><i className="top" style={{ width: `${Math.min(100, Number.isFinite(item.topEffectiveRate) ? item.topEffectiveRate * 100 : 0)}%` }} /><i className="undergraduate" style={{ width: `${Math.min(100, Number.isFinite(item.undergraduateEffectiveRate) ? item.undergraduateEffectiveRate * 100 : 0)}%` }} /></div><b><em>一本{percent(item.topEffectiveRate)}</em><em>本科{percent(item.undergraduateEffectiveRate)}</em></b></button>)}</div>
         </Panel>
         <Panel title="本次考试智能洞察" subtitle="根据当前筛选范围实时生成" className="span-2">
-          <div className="insight-cards"><div><TrendingUp /><p><b>上线转化空间</b><span>本科上线比一本上线多{Math.max(0, undergraduateCount - topCount)}人，可重点跟踪一本临界生。</span></p></div><div><Sparkles /><p><b>班级亮点</b><span>{bestConversionClass ? `${bestConversionClass.classNo}班本科上线率${percent(bestConversionClass.undergraduateRate)}，当前范围表现较优。` : "暂无班级数据"}</span></p></div><div><ShieldCheck /><p><b>数据可信度</b><span>{dataQualityScore >= 95 ? "核心字段完整，分析结果可信度较高。" : "部分字段缺失，系统已按模块降级并保留有效结论。"}</span></p></div></div>
+          <div className="insight-cards"><div><TrendingUp /><p><b>上线转化空间</b><span>本科上线比一本上线多{metric(Math.max(0, undergraduateCount - topCount))}人，可重点跟踪一本临界生。</span></p></div><div><Sparkles /><p><b>班级亮点</b><span>{bestConversionClass ? `${bestConversionClass.classNo}班本科上线率${percent(bestConversionClass.undergraduateRate)}，当前范围表现较优。` : "暂无班级数据"}</span></p></div><div><ShieldCheck /><p><b>数据可信度</b><span>{dataQualityScore >= 95 ? "核心字段较完整；仍需核验分数线和当前考试可用模块。" : "部分字段缺失，系统已按模块降级并保留有效结论。"}</span></p></div></div>
         </Panel>
         <Panel title="临界生预警" subtitle="总分线下20分以内" action={<button className="text-button" onClick={() => setView("online")}>查看全部</button>} className="span-2">
           <div className="compact-table"><table><thead><tr><th>类型</th><th>班级</th><th>姓名</th><th>总分</th><th>一本差</th><th>本科差</th><th>优先补强</th></tr></thead><tbody>{critical.slice(0, 8).map((item) => <tr key={`${item.classNo}-${item.name}`}><td>{item.criticalTiers.join("、")}</td><td>{item.classNo}班</td><td>{item.name}</td><td>{format1(item.total)}</td><td className={(item.topDiff ?? 0) < 0 ? "negative" : "positive"}>{item.topDiff === null ? "—" : format1(item.topDiff)}</td><td>{item.undergraduateDiff === null ? "—" : format1(item.undergraduateDiff)}</td><td>{item.weakSubjects.slice(0, 2).map((weak) => weak.subject).join("、") || "待分析"}</td></tr>)}</tbody></table></div>
@@ -510,7 +493,7 @@ export default function Home() {
     const data = currentClassSummaries.map((item) => ({ name: `${item.classNo}班`, 平均分: Number(item.average.toFixed(1)), 一本率: Number((item.topRate * 100).toFixed(1)), 本科率: Number((item.undergraduateRate * 100).toFixed(1)) }));
     return <div className="two-column">
       <Panel title="班级横向对比" subtitle="平均分及一本/本科上线率，建议优先在同班型内比较" action={<TierLegend />} className="span-2"><div className="chart-box tall"><Suspense fallback={chartFallback}><ClassCompareChart data={data} /></Suspense></div></Panel>
-      <Panel title="班级指标排名" subtitle="点击班级进入该班分析" className="span-2"><div className="data-table"><table><thead><tr><th>班级</th><th>类别</th><th>班型</th><th>人数</th><th>平均分</th><th>一本人数/率</th><th>本科人数/率</th><th>操作</th></tr></thead><tbody>{[...currentClassSummaries].sort((a, b) => b.average - a.average).map((item, index) => <tr key={item.classNo}><td><b>{index + 1}. {item.classNo}班</b></td><td>{item.track}</td><td>{item.type}</td><td>{item.count}</td><td>{format1(item.average)}</td><td>{item.topCount} / {percent(item.topRate)}</td><td>{item.undergraduateCount} / {percent(item.undergraduateRate)}</td><td><button className="table-action" onClick={() => setClassNo(item.classNo)}>只看该班</button></td></tr>)}</tbody></table></div></Panel>
+      <Panel title="班级指标排名" subtitle="点击班级进入该班分析" className="span-2"><div className="data-table"><table><thead><tr><th>班级</th><th>类别</th><th>班型</th><th>人数</th><th>平均分</th><th>一本人数/率</th><th>本科人数/率</th><th>操作</th></tr></thead><tbody>{[...currentClassSummaries].sort((a, b) => b.average - a.average).map((item, index) => <tr key={item.classNo}><td><b>{index + 1}. {item.classNo}班</b></td><td>{item.track}</td><td>{item.type}</td><td>{item.count}</td><td>{format1(item.average)}</td><td>{metric(item.topCount)} / {percent(item.topRate)}</td><td>{metric(item.undergraduateCount)} / {percent(item.undergraduateRate)}</td><td><button className="table-action" onClick={() => setClassNo(item.classNo)}>只看该班</button></td></tr>)}</tbody></table></div></Panel>
       <Panel title="同类对标雷达" subtitle="平均分差、一本率差和本科率差均相对同组基准" className="span-2"><div className="data-table"><table><thead><tr><th>班级</th><th>对标组</th><th>均分差</th><th>一本率差</th><th>本科率差</th><th>同组位次</th></tr></thead><tbody>{benchmarkRows.filter((item) => classNo === "全部" || item.classNo === classNo).map((item) => <tr key={`benchmark-${item.classNo}`}><td>{item.classNo}班</td><td>{item.peerGroup}</td><td className={item.averageDelta >= 0 ? "positive" : "negative"}>{item.averageDelta >= 0 ? "+" : ""}{format1(item.averageDelta)}</td><td className={item.topRateDelta >= 0 ? "positive" : "negative"}>{item.topRateDelta >= 0 ? "+" : ""}{percent(item.topRateDelta)}</td><td className={item.undergraduateRateDelta >= 0 ? "positive" : "negative"}>{item.undergraduateRateDelta >= 0 ? "+" : ""}{percent(item.undergraduateRateDelta)}</td><td>{item.peerRank} / {item.peerSize}</td></tr>)}</tbody></table></div></Panel>
     </div>;
   };
@@ -520,9 +503,9 @@ export default function Home() {
     const classData = currentClassSummaries.map((item) => ({ name: `${item.classNo}班`, average: Number((item.subjectAverages[activeSubject] ?? 0).toFixed(1)) })).filter((item) => item.average > 0);
     return <div className="two-column">
       <Panel title="学科选择" subtitle="切换学科查看班级横向差异"><div className="subject-pills">{subjects.map((item) => <button className={activeSubject === item.subject ? "active" : ""} onClick={() => setSubject(item.subject)} key={item.subject}>{item.subject}<span>{format1(item.average)}</span></button>)}</div></Panel>
-      <div className="mini-stat-row"><StatCard icon={BarChart3} label={`${selected?.subject ?? activeSubject}平均分`} value={selected ? format1(selected.average) : "—"} note={`最高分${selected ? format1(selected.max) : "—"}`} /><StatCard icon={Target} label="一本学科有效" value={`${selected?.topEffectiveCount ?? 0}人`} note={`有效线${selected?.topEffectiveLine ? format1(selected.topEffectiveLine) : "未设置"} · ${percent(selected?.topEffectiveRate ?? 0)}`} tone="orange" /><StatCard icon={CheckCircle2} label="本科学科有效" value={`${selected?.undergraduateEffectiveCount ?? 0}人`} note={`有效线${selected?.undergraduateEffectiveLine ? format1(selected.undergraduateEffectiveLine) : "未设置"} · ${percent(selected?.undergraduateEffectiveRate ?? 0)}`} tone="green" /></div>
+      <div className="mini-stat-row"><StatCard icon={BarChart3} label={`${selected?.subject ?? activeSubject}平均分`} value={selected ? format1(selected.average) : "—"} note={`最高分${selected ? format1(selected.max) : "—"}`} /><StatCard icon={Target} label="一本学科有效" value={`${metric(selected?.topEffectiveCount)}人`} note={`有效线${selected?.topEffectiveLine ? format1(selected.topEffectiveLine) : "未设置"} · ${percent(selected?.topEffectiveRate)}`} tone="orange" /><StatCard icon={CheckCircle2} label="本科学科有效" value={`${metric(selected?.undergraduateEffectiveCount)}人`} note={`有效线${selected?.undergraduateEffectiveLine ? format1(selected.undergraduateEffectiveLine) : "未设置"} · ${percent(selected?.undergraduateEffectiveRate)}`} tone="green" /></div>
       <Panel title={`${activeSubject}班级横向对比`} subtitle="只比较实际参加该学科的班级" className="span-2"><div className="chart-box tall"><Suspense fallback={chartFallback}><SubjectClassChart data={classData} /></Suspense></div></Panel>
-      <Panel title="各学科概览" subtitle="一本与本科有效上线双口径" className="span-2"><div className="data-table"><table><thead><tr><th>学科</th><th>参考人数</th><th>平均分</th><th>最高分</th><th>一本有效分</th><th>一本人数/率</th><th>本科有效分</th><th>本科人数/率</th></tr></thead><tbody>{subjects.map((item) => <tr key={item.subject}><td><b>{item.subject}</b></td><td>{item.count}</td><td>{format1(item.average)}</td><td>{format1(item.max)}</td><td>{item.topEffectiveLine ? format1(item.topEffectiveLine) : "未设置"}</td><td>{item.topEffectiveCount} / {percent(item.topEffectiveRate)}</td><td>{item.undergraduateEffectiveLine ? format1(item.undergraduateEffectiveLine) : "未设置"}</td><td>{item.undergraduateEffectiveCount} / {percent(item.undergraduateEffectiveRate)}</td></tr>)}</tbody></table></div></Panel>
+      <Panel title="各学科概览" subtitle="人数/率仅计算有对应分数线者；—表示不可计算" className="span-2"><div className="data-table"><table><thead><tr><th>学科</th><th>参考人数</th><th>平均分</th><th>最高分</th><th>一本有效分</th><th>一本人数/率</th><th>本科有效分</th><th>本科人数/率</th></tr></thead><tbody>{subjects.map((item) => <tr key={item.subject}><td><b>{item.subject}</b></td><td>{item.count}</td><td>{format1(item.average)}</td><td>{format1(item.max)}</td><td>{item.topEffectiveLine ? format1(item.topEffectiveLine) : "未设置"}</td><td>{metric(item.topEffectiveCount)} / {percent(item.topEffectiveRate)}（可算{item.topEligible}人）</td><td>{item.undergraduateEffectiveLine ? format1(item.undergraduateEffectiveLine) : "未设置"}</td><td>{metric(item.undergraduateEffectiveCount)} / {percent(item.undergraduateEffectiveRate)}（可算{item.undergraduateEligible}人）</td></tr>)}</tbody></table></div></Panel>
       <Panel title={`${activeSubject}知识点优先级`} subtitle="把小题得分率聚合为可执行的补弱顺序" className="span-2"><div className="knowledge-layout"><div className="knowledge-priority">{knowledgeData.slice(0, 8).map((item, index) => <div key={`${item.knowledge}-${index}`}><span className={`priority-${item.priority === "优先补弱" ? "high" : item.priority === "巩固提升" ? "mid" : "keep"}`}>{item.priority}</span><b>{item.knowledge}</b><small>{item.questionCount}题 · {item.responseCount.toLocaleString()}次作答</small><strong>{percent(item.rate)}</strong></div>)}</div><div className="knowledge-note"><Sparkles size={19} /><p><b>如何使用</b><span>优先补弱 = 低得分率且已覆盖的共性问题；巩固提升 = 需要分层作业；优势保持 = 保持高阶题训练。</span></p></div></div></Panel>
     </div>;
   };
@@ -534,11 +517,11 @@ export default function Home() {
     if (!selected) return <EmptyState text="当前范围没有学生数据" />;
     const history = dataset.scores.filter((row) => row.classNo === selected.classNo && row.name === selected.name).map((row) => ({ exam: row.exam, total: row.total, 市排名: row.cityRank }));
     const threshold = getThreshold(dataset, exam, selected.track);
-    const subjectData = relevantSubjects(getClassProfile(selected.classNo)).map((item) => ({ subject: item, score: selected.subjects[item] ?? null, topLine: threshold?.topSubjects[item] ?? null, undergraduateLine: threshold?.undergraduateSubjects[item] ?? null }));
+    const subjectData = relevantSubjects(getClassProfile(selected.classNo, selected.rawExam)).map((item) => ({ subject: item, score: selected.subjects[item] ?? null, topLine: threshold?.topSubjects[item] ?? null, undergraduateLine: threshold?.undergraduateSubjects[item] ?? null }));
     return <div className="student-layout">
       <Panel title="学生检索" subtitle="点击姓名查看完整画像"><div className="search-box full"><Search size={16} /><input value={studentQuery} onChange={(event) => setStudentQuery(event.target.value)} placeholder="输入学生姓名" /></div><div className="student-results">{searchedStudents.slice(0, 20).map((row) => <button className={selected.name === row.name && selected.classNo === row.classNo ? "active" : ""} onClick={() => setSelectedStudent(row)} key={`${row.classNo}-${row.name}`}><span>{row.name}<small>{row.classNo}班 · {row.classType}</small></span><b>{format1(row.total)}</b></button>)}</div></Panel>
       <div className="student-main">
-        <div className="student-hero"><div className="avatar">{selected.name.slice(-1)}</div><div><span>{selected.classNo}班 · {selected.combination} · {selected.classType}</span><h1>{selected.name}</h1><p>{exam}总分 {format1(selected.total)} · 市排名 {selected.cityRank ?? "—"} · 校排名 {selected.schoolRank ?? "—"}</p></div><div className="student-status">{typeof threshold?.topTotal === "number" && selected.total >= threshold.topTotal ? <StatusTag tone="warn">一本上线</StatusTag> : typeof threshold?.undergraduateTotal === "number" && selected.total >= threshold.undergraduateTotal ? <StatusTag tone="good">本科上线</StatusTag> : <StatusTag tone="bad">重点关注</StatusTag>}</div></div>
+        <div className="student-hero"><div className="avatar">{selected.name.slice(-1)}</div><div><span>{selected.classNo}班 · {selected.combination} · {selected.classType}</span><h1>{selected.name}</h1><p>{exam}总分 {format1(selected.total)} · 市排名 {selected.cityRank ?? "—"} · 校排名 {selected.schoolRank ?? "—"}</p></div><div className="student-status">{typeof threshold?.topTotal === "number" && selected.total >= threshold.topTotal ? <StatusTag tone="warn">一本上线</StatusTag> : typeof threshold?.undergraduateTotal === "number" && selected.total >= threshold.undergraduateTotal ? <StatusTag tone="good">本科上线</StatusTag> : <StatusTag tone="neutral">{typeof threshold?.undergraduateTotal === "number" ? "重点关注" : "缺少分数线"}</StatusTag>}</div></div>
         <div className="two-column">
           <Panel title="历次考试走势" subtitle="总分变化"><div className="chart-box"><Suspense fallback={chartFallback}><HistoryLineChart data={history} /></Suspense></div></Panel>
           <Panel title="学科上线诊断" subtitle="个人分数与一本、本科有效分对照；缺失学科不会伪造为0分" action={<TierLegend />}><div className="chart-box"><Suspense fallback={chartFallback}><SubjectDiagnosisChart data={subjectData} /></Suspense></div></Panel>
@@ -549,29 +532,29 @@ export default function Home() {
   };
 
   const renderOnline = () => <div className="two-column">
-    <Panel title="上线结构与临界区间" subtitle="一本与本科临界生分别统计" action={<TierLegend />}><div className="online-summary"><div className="tier-top"><span>特控/一本上线</span><b>{topCount}</b><small>{percent(activeScores.length ? topCount / activeScores.length : 0)}</small></div><div className="tier-undergraduate"><span>本科上线</span><b>{undergraduateCount}</b><small>{percent(activeScores.length ? undergraduateCount / activeScores.length : 0)}</small></div><div className="tier-top"><span>一本线下10分</span><b>{topCritical.filter((row) => (row.topDiff ?? -999) >= -10).length}</b><small>优先冲一本</small></div><div className="tier-top"><span>一本线下20分</span><b>{topCritical.length}</b><small>一本临界</small></div><div className="tier-undergraduate"><span>本科线下10分</span><b>{undergraduateCritical.filter((row) => (row.undergraduateDiff ?? -999) >= -10).length}</b><small>优先保本科</small></div><div className="tier-undergraduate"><span>本科线下20分</span><b>{undergraduateCritical.length}</b><small>本科临界</small></div></div></Panel>
-    <Panel title="班级上线完成情况" subtitle="双轨进度条：橙色一本，绿色本科" action={<TierLegend />}><div className="class-online-list">{currentClassSummaries.map((item) => <div key={item.classNo}><b>{item.classNo}班</b><span>{item.type}</span><div className="dual-progress"><i className="top" style={{ width: `${item.topRate * 100}%` }} /><i className="undergraduate" style={{ width: `${item.undergraduateRate * 100}%` }} /></div><strong><em>一本 {item.topCount}人 · {percent(item.topRate)}</em><em>本科 {item.undergraduateCount}人 · {percent(item.undergraduateRate)}</em></strong></div>)}</div></Panel>
+    <Panel title="上线结构与临界区间" subtitle="一本与本科临界生分别统计" action={<TierLegend />}><div className="online-summary"><div className="tier-top"><span>特控/一本上线</span><b>{metric(topCount)}</b><small>{percent(online.topRate)}</small></div><div className="tier-undergraduate"><span>本科上线</span><b>{metric(undergraduateCount)}</b><small>{percent(online.undergraduateRate)}</small></div><div className="tier-top"><span>一本线下10分</span><b>{topCritical.filter((row) => (row.topDiff ?? -999) >= -10).length}</b><small>优先冲一本</small></div><div className="tier-top"><span>一本线下20分</span><b>{topCritical.length}</b><small>一本临界</small></div><div className="tier-undergraduate"><span>本科线下10分</span><b>{undergraduateCritical.filter((row) => (row.undergraduateDiff ?? -999) >= -10).length}</b><small>优先保本科</small></div><div className="tier-undergraduate"><span>本科线下20分</span><b>{undergraduateCritical.length}</b><small>本科临界</small></div></div></Panel>
+    <Panel title="班级上线完成情况" subtitle="双轨进度条：橙色一本，绿色本科" action={<TierLegend />}><div className="class-online-list">{currentClassSummaries.map((item) => <div key={item.classNo}><b>{item.classNo}班</b><span>{item.type}</span><div className="dual-progress"><i className="top" style={{ width: `${Number.isFinite(item.topRate) ? item.topRate * 100 : 0}%` }} /><i className="undergraduate" style={{ width: `${Number.isFinite(item.undergraduateRate) ? item.undergraduateRate * 100 : 0}%` }} /></div><strong><em>一本 {metric(item.topCount)}人 · {percent(item.topRate)}</em><em>本科 {metric(item.undergraduateCount)}人 · {percent(item.undergraduateRate)}</em></strong></div>)}</div></Panel>
     <Panel title="临界生与薄弱学科" subtitle="一本/本科分开标识，点击学生进入个人画像" className="span-2"><div className="data-table"><table><thead><tr><th>临界类型</th><th>班级</th><th>姓名</th><th>总分</th><th>一本差</th><th>本科差</th><th>薄弱学科</th><th>建议</th></tr></thead><tbody>{critical.map((item) => <tr key={`${item.classNo}-${item.name}`} onClick={() => { setSelectedStudent(item); setView("students"); }}><td>{item.criticalTiers.map((tier) => <StatusTag key={tier} tone={tier === "一本" ? "warn" : "good"}>{tier}</StatusTag>)}</td><td>{item.classNo}班</td><td className="student-link">{item.name}</td><td>{format1(item.total)}</td><td className={(item.topDiff ?? 0) < 0 ? "negative" : "positive"}>{item.topDiff === null ? "—" : format1(item.topDiff)}</td><td className={(item.undergraduateDiff ?? 0) < 0 ? "negative" : "positive"}>{item.undergraduateDiff === null ? "—" : format1(item.undergraduateDiff)}</td><td>{item.weakSubjects.slice(0, 3).map((weak) => `${weak.subject}${format1(weak.diff)}`).join("、") || "—"}</td><td><StatusTag tone="warn">重点跟踪</StatusTag></td></tr>)}</tbody></table></div></Panel>
   </div>;
 
   const renderItems = () => {
-    const lowItems = [...itemStats].sort((a, b) => a.rate - b.rate);
-    const chartData = itemStats.map((item) => ({ name: item.question, 得分率: Number((item.rate * 100).toFixed(1)) }));
-    const emptyItemText = classNo === 7 && activeSubject === "日语"
+    const lowItems = itemStats.filter(i => Number.isFinite(i.rate)).sort((a, b) => a.rate - b.rate);
+    const chartData = itemStats.filter(i => Number.isFinite(i.rate)).map((item) => ({ name: item.question, 得分率: Number((item.rate * 100).toFixed(1)) }));
+    const emptyItemText = itemRows.length ? "已有答题得分，但缺少有效满分，暂不能计算正式得分率" : classNo === 7 && activeSubject === "日语"
       ? "源表的英语小题表未包含7班日语答题记录，系统不会将缺失数据按0分计算"
-      : "这次考试尚未识别到该学科的小题数据";
+      : "本次考试未提供该范围的小题明细，暂不能生成小题和知识点诊断";
     return <div className="two-column">
-      <Panel title="小题分析条件" subtitle="选择学科和班级后自动重算"><div className="subject-pills">{subjects.map((item) => <button className={activeSubject === item.subject ? "active" : ""} onClick={() => setSubject(item.subject)} key={item.subject}>{item.subject}</button>)}</div><div className="item-summary"><div><span>识别题目</span><b>{questionBank.length}</b></div><div><span>答题记录</span><b>{itemRows.length}</b></div><div><span>平均得分率</span><b>{itemStats.length ? percent(average(itemStats.map((item) => item.rate))) : "—"}</b></div></div></Panel>
+      <Panel title="小题分析条件" subtitle="选择学科和班级后自动重算"><div className="subject-pills">{subjects.map((item) => <button className={activeSubject === item.subject ? "active" : ""} onClick={() => setSubject(item.subject)} key={item.subject}>{item.subject}</button>)}</div><div className="item-summary"><div><span>识别题目</span><b>{questionBank.length}</b></div><div><span>答题记录</span><b>{itemRows.length}</b></div><div><span>平均得分率</span><b>{itemStats.some(i => Number.isFinite(i.rate)) ? percent(average(itemStats.map((item) => item.rate).filter(Number.isFinite))) : "—"}</b></div></div></Panel>
       <Panel title="薄弱知识点" subtitle="按小题得分率从低到高"><div className="weak-list">{lowItems.slice(0, 6).map((item, index) => <div key={`${item.question}-${index}`}><span className="rank">{index + 1}</span><div><b>{item.knowledge}</b><small>{item.question} · 均分{format1(item.average)}/{item.maxScore ?? "—"}{item.maxScoreSource === "inferred" ? " · 推断满分" : ""}</small></div><strong>{percent(item.rate)}</strong></div>)}</div></Panel>
       <Panel title={`${activeSubject}小题得分率`} subtitle="低于60%的题目以橙色提示" className="span-2">{chartData.length ? <div className="chart-box tall"><Suspense fallback={chartFallback}><ItemRateChart data={chartData} /></Suspense></div> : <EmptyState text={emptyItemText} />}</Panel>
-      <Panel title="小题明细" subtitle="分值、知识点、平均得分和得分率；推断满分带有标记" className="span-2"><div className="data-table"><table><thead><tr><th>题号</th><th>知识点</th><th>满分</th><th>平均分</th><th>得分率</th><th>诊断</th></tr></thead><tbody>{itemStats.map((item) => <tr key={item.question}><td>{item.question}</td><td>{item.knowledge}</td><td>{item.maxScore ?? "—"}{item.maxScoreSource === "inferred" ? "*" : ""}</td><td>{format1(item.average)}</td><td>{percent(item.rate)}</td><td><StatusTag tone={item.rate >= .75 ? "good" : item.rate >= .6 ? "neutral" : "warn"}>{item.rate >= .75 ? "掌握较好" : item.rate >= .6 ? "基本掌握" : "重点补弱"}</StatusTag></td></tr>)}</tbody></table></div></Panel>
+      <Panel title="小题明细" subtitle="缺少满分或得分异常时，得分率与诊断显示不可用" className="span-2"><div className="data-table"><table><thead><tr><th>题号</th><th>知识点</th><th>满分</th><th>平均分</th><th>得分率</th><th>诊断</th></tr></thead><tbody>{itemStats.map((item) => <tr key={item.question}><td>{item.question}</td><td>{item.knowledge}</td><td>{item.maxScore ?? "—"}{item.maxScoreSource === "inferred" ? "*" : ""}</td><td>{format1(item.average)}</td><td>{percent(item.rate)}</td><td><StatusTag tone={item.rate >= .75 ? "good" : item.rate >= .6 ? "neutral" : "warn"}>{!Number.isFinite(item.rate) ? "缺少有效满分或得分异常" : item.rate >= .75 ? "掌握较好" : item.rate >= .6 ? "基本掌握" : "重点补弱"}</StatusTag></td></tr>)}</tbody></table></div></Panel>
     </div>;
   };
 
   const renderHistory = () => <div className="two-column">
     <Panel title="历次考试年级趋势" subtitle="平均分与上线人数变化" action={<TierLegend />} className="span-2"><div className="chart-box tall"><Suspense fallback={chartFallback}><GradeTrendChart data={historyData} /></Suspense></div></Panel>
-    <Panel title="考试节点对比" subtitle="当前筛选范围"><div className="history-cards">{historyData.map((item, index) => <div key={item.exam}><span>{item.exam}</span><b>{format1(item.average)}</b><small>平均分</small><em className={index > 0 && item.average >= historyData[index - 1].average ? "positive" : "negative"}>{index === 0 ? "基准" : `${item.average >= historyData[index - 1].average ? "+" : ""}${format1(item.average - historyData[index - 1].average)}`}</em></div>)}</div></Panel>
-    <Panel title="增值观察" subtitle="平均分与一本/本科上线转化"><div className="insight-list"><div><CheckCircle2 /><p><b>平均分变化</b><span>{historyData.length > 1 ? `较${historyData[historyData.length - 2].exam}${historyData.at(-1)!.average >= historyData[historyData.length - 2].average ? "提高" : "下降"}${format1(Math.abs(historyData.at(-1)!.average - historyData[historyData.length - 2].average))}分` : "暂无对比考试"}</span></p></div><div><Medal /><p><b>一本上线变化</b><span>{historyData.length > 1 ? `较上次${historyData.at(-1)!.top - historyData[historyData.length - 2].top >= 0 ? "增加" : "减少"}${Math.abs(historyData.at(-1)!.top - historyData[historyData.length - 2].top)}人` : "暂无对比考试"}</span></p></div><div><Target /><p><b>本科上线变化</b><span>{historyData.length > 1 ? `较上次${historyData.at(-1)!.undergraduate - historyData[historyData.length - 2].undergraduate >= 0 ? "增加" : "减少"}${Math.abs(historyData.at(-1)!.undergraduate - historyData[historyData.length - 2].undergraduate)}人` : "暂无对比考试"}</span></p></div><div><AlertTriangle /><p><b>使用建议</b><span>切换班级后，可查看单班历次考试变化。</span></p></div></div></Panel>
+    <Panel title="考试节点对比" subtitle="当前筛选范围"><div className="history-cards">{historyData.map((item, index) => <div key={item.exam}><span>{item.exam}</span><b>{format1(item.average)}</b><small>平均分 · {item.count}人</small><em className={index > 0 && item.average >= historyData[index - 1].average ? "positive" : "negative"}>{index === 0 ? "基准" : `${item.average >= historyData[index - 1].average ? "+" : ""}${format1(item.average - historyData[index - 1].average)}`}</em></div>)}</div></Panel>
+    <Panel title="同批学生变化" subtitle="当前考试与前一次考试"><p>{comparison.message}</p><p>同校、同班、同名、同类别匹配，转班与重名需核验。考试难度、满分和赋分规则未确认一致，原始均分变化不等于教学增值。</p></Panel>
   </div>;
 
   const renderReports = () => <div className="report-layout">
@@ -580,10 +563,10 @@ export default function Home() {
   </div>;
 
   const renderSettings = () => <div className="two-column">
-    <Panel title="班型与选科规则" subtitle="已按本届1—16班情况预置" className="span-2"><div className="data-table"><table><thead><tr><th>班级</th><th>类别</th><th>选科组合</th><th>班型</th><th>外语口径</th><th>源表自动转换</th><th>比较建议</th></tr></thead><tbody>{Object.values(CLASS_PROFILES).map((item) => <tr key={item.classNo}><td>{item.classNo}班</td><td>{item.track}</td><td>{item.combination}</td><td>{item.type}</td><td>{item.classNo === 7 ? "日语" : "英语"}</td><td>{item.classNo === 7 ? "英语列 → 日语" : item.classNo === 9 ? "生物列 → 地理" : "按原列"}</td><td>{[1, 2, 10].includes(item.classNo) ? "班型内+全年级双口径" : [15, 16].includes(item.classNo) ? "专项口径" : "同类别平行班"}</td></tr>)}</tbody></table></div></Panel>
+    <Panel title="班型与选科规则" subtitle="1—18班预置；17、18班班型待确认，新增班级按考试类别识别" className="span-2"><div className="data-table"><table><thead><tr><th>班级</th><th>类别</th><th>选科组合</th><th>班型</th><th>外语口径</th><th>源表自动转换</th><th>比较建议</th></tr></thead><tbody>{Object.values(CLASS_PROFILES).map((item) => <tr key={item.classNo}><td>{item.classNo}班</td><td>{item.track}</td><td>{item.combination}</td><td>{item.type}</td><td>{item.classNo === 7 ? "日语" : "英语"}</td><td>{item.classNo === 7 ? "英语列 → 日语" : item.classNo === 9 ? "生物列 → 地理" : "按原列"}</td><td>{[1, 2, 10].includes(item.classNo) ? "班型内+全年级双口径" : [15, 16].includes(item.classNo) ? "专项口径" : "同类别平行班"}</td></tr>)}</tbody></table></div></Panel>
     <Panel title="当前数据健康度" subtitle="缺失数据按模块降级，不会拖垮整个系统" action={<StatusTag tone={dataQualityScore >= 95 ? "good" : dataQualityScore >= 80 ? "warn" : "bad"}>{dataQualityScore}分</StatusTag>}><div className="quality-detail"><div><span>学科字段完整度</span><b>{percent(subjectCompleteness)}</b><i><em style={{ width: `${subjectCompleteness * 100}%` }} /></i></div><div><span>一本/本科线完整度</span><b>{percent(thresholdCompleteness)}</b><i><em style={{ width: `${thresholdCompleteness * 100}%` }} /></i></div><div><span>当前有效成绩</span><b>{activeScores.length.toLocaleString()}条</b><small>缺失单科显示“—”，不计入均分分母</small></div><div><span>数据提醒</span><b>{warningCount}项</b><small>错误阻止覆盖旧数据，警告仅关闭受影响模块</small></div></div></Panel>
     <Panel title="当前考试分数线" subtitle={`${exam} · 分类别设置`}><div className="threshold-cards">{(["物理类", "历史类"] as Track[]).map((item) => { const line = getThreshold(dataset, exam, item); return <div key={item}><b>{item}</b><span>特控/一本线<strong>{line?.topTotal ?? "未设置"}</strong></span><span>本科线<strong>{line?.undergraduateTotal ?? "未设置"}</strong></span></div>; })}</div></Panel>
-    <Panel title="模块可用性矩阵" subtitle="字段缺失时关闭受影响指标，其他模块继续可用" className="span-2"><div className="capability-grid">{(dataset.profile?.capabilities ?? []).map((capability) => <div key={capability.id} className={capability.available ? "available" : "unavailable"}><div><b>{capability.label}</b><span>{capability.available ? "可用" : "降级"}</span></div><i><em style={{ width: `${capability.confidence * 100}%` }} /></i><small>{capability.reason}</small></div>)}</div></Panel>
+    <Panel title="模块可用性矩阵" subtitle="字段缺失时关闭受影响指标，其他模块继续可用" className="span-2"><div className="capability-grid">{(dataset.profile?.capabilities ?? []).map(c => c.id === "items" ? {...c, available: currentItemCoverage > 0, confidence: currentItemCoverage, reason: currentItemCoverage > 0 ? `当前考试范围覆盖${percent(currentItemCoverage)}` : "本次考试未提供小题明细"} : c).map((capability) => <div key={capability.id} className={capability.available ? "available" : "unavailable"}><div><b>{capability.label}</b><span>{capability.available ? "可用" : "降级"}</span></div><i><em style={{ width: `${capability.confidence * 100}%` }} /></i><small>{capability.reason}</small></div>)}</div></Panel>
     <Panel title="字段识别映射" subtitle="识别策略会随表格列插入、改名和空列自动重算" className="span-2"><div className="data-table"><table><thead><tr><th>字段</th><th>源表表头</th><th>列号</th><th>策略</th><th>置信度</th></tr></thead><tbody>{(dataset.profile?.fieldMatches ?? []).map((match) => <tr key={`${match.field}-${match.column}`}><td>{match.field}</td><td>{match.header || "未识别"}</td><td>{match.column === null ? "—" : match.column + 1}</td><td>{match.strategy}</td><td>{percent(match.confidence)}</td></tr>)}</tbody></table></div></Panel>
     <Panel title="导入质量检查" subtitle="问题按严重程度列出，其他可用模块继续工作" className="span-2"><div className="issue-list">{datasetIssues.length ? datasetIssues.map((issue, index) => <div key={index} className={issue.level}><span>{issue.level === "error" ? <X size={16} /> : issue.level === "warning" ? <AlertTriangle size={16} /> : <CheckCircle2 size={16} />}</span><p>{issue.message}</p></div>) : <div className="success-state"><CheckCircle2 />未发现明显数据问题</div>}</div></Panel>
   </div>;
@@ -606,7 +589,7 @@ export default function Home() {
   return (
     <div className="app-shell">
       <aside className={menuOpen ? "sidebar open" : "sidebar"}>
-        <div className="brand"><div className="brand-mark"><School /></div><div><strong>质量慧析</strong><span>ACADEMIC INTELLIGENCE</span></div><button className="mobile-close" onClick={() => setMenuOpen(false)}><X /></button></div>
+        <div className="brand"><div className="brand-mark"><School /></div><div><strong>质量慧析 · 1.1</strong><span>ACADEMIC INTELLIGENCE</span></div><button className="mobile-close" onClick={() => setMenuOpen(false)}><X /></button></div>
         <nav>{(["全局分析", "精细诊断", "输出与设置"] as const).map((group) => <div className="nav-group" key={group}><span className="nav-group-label">{group}</span>{navItems.filter((item) => item.group === group).map(({ id, label, icon: Icon }) => <button key={id} className={view === id ? "active" : ""} onClick={() => { setView(id); setMenuOpen(false); }}><Icon size={17} strokeWidth={1.8} /><span>{label}</span>{id === "online" && critical.length > 0 && <em>{critical.length}</em>}</button>)}</div>)}</nav>
         <div className="sidebar-footer"><div className="source-icon"><FileSpreadsheet size={17} /></div><div><span><i /> 当前数据源</span><b title={dataset.sourceName}>{dataset.sourceName}</b></div></div>
       </aside>
@@ -615,7 +598,7 @@ export default function Home() {
         <header className="topbar">
           <div className="topbar-leading"><button className="menu-button" onClick={() => setMenuOpen(true)} aria-label="打开菜单"><Menu /></button><div className="topbar-context"><span>ANALYTICS WORKSPACE</span><strong>{navItems.find((item) => item.id === view)?.label}</strong></div></div>
           <div className="filters">
-            <label><span>考试</span><div><select value={exam} onChange={(event) => setExam(event.target.value)}>{dataset.exams.map((item) => <option key={item}>{item}</option>)}</select><ChevronDown size={15} /></div></label>
+            <label><span>考试</span><div><select value={exam} onChange={(event) => { setExam(event.target.value); setClassNo("全部"); try { localStorage.setItem("accuracy-v1.1-exam", event.target.value); } catch { /* session remains usable */ } }}>{dataset.exams.map((item) => <option key={item}>{item}</option>)}</select><ChevronDown size={15} /></div></label>
             <label><span>类别</span><div><select value={track} onChange={(event) => { setTrack(event.target.value as Track | "全部"); setClassNo("全部"); }}><option>全部</option><option>物理类</option><option>历史类</option></select><ChevronDown size={15} /></div></label>
             <label><span>班级</span><div><select value={classNo} onChange={(event) => setClassNo(event.target.value === "全部" ? "全部" : Number(event.target.value))}><option>全部</option>{classOptions.map((item) => <option value={item} key={item}>{item}班</option>)}</select><ChevronDown size={15} /></div></label>
           </div>

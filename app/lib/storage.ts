@@ -1,6 +1,6 @@
 import type { GradeDataset } from "./types";
 
-const DB_NAME = "grade-quality-analysis";
+const DB_NAME = "grade-quality-analysis-accuracy-v1.1";
 const STORE = "datasets";
 
 const openDb = (): Promise<IDBDatabase> => new Promise((resolve, reject) => {
