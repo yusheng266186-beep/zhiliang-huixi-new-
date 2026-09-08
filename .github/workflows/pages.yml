@@ -33,6 +33,11 @@ jobs:
         with:
           ref: dfa268655ac0957907ae89af532213e0a1222bc4
           path: accuracy-source
+      - name: Checkout accuracy v1.2 source
+        uses: actions/checkout@v4
+        with:
+          ref: d6cef6c17b611ba9bbd46faf1152f9f670595525
+          path: accuracy-v12-source
       - name: Use Node.js 22
         uses: actions/setup-node@v4
         with:
@@ -72,12 +77,22 @@ jobs:
           npm run test:accuracy
           npm run build:pages
           node scripts/check-pages-build.mjs
+      - name: Build accuracy v1.2 site
+        working-directory: accuracy-v12-source
+        run: |
+          npm ci
+          npx tsc --noEmit
+          npm run lint
+          npm run test:accuracy
+          npm run test:workbook
+          npm test
       - name: Compose versioned Pages artifact
         run: |
-          mkdir -p pages-artifact/v2 pages-artifact/accuracy-v1.1
+          mkdir -p pages-artifact/v2 pages-artifact/accuracy-v1.1 pages-artifact/accuracy-v1.2
           cp -a legacy/pages-dist/. pages-artifact/
           cp -a v2-source/pages-dist/. pages-artifact/v2/
           cp -a accuracy-source/pages-dist/. pages-artifact/accuracy-v1.1/
+          cp -a accuracy-v12-source/pages-dist/. pages-artifact/accuracy-v1.2/
           touch pages-artifact/.nojekyll
       - name: Configure Pages
         uses: actions/configure-pages@v5
