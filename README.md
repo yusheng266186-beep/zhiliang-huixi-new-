@@ -5,6 +5,25 @@
 > 在线 Pages：[打开质量慧析](https://yusheng266186-beep.github.io/zhiliang-huixi-new-/)  
 > GitHub：[查看源代码](https://github.com/yusheng266186-beep/zhiliang-huixi-new-)
 
+<!-- project-navigation:start -->
+## 项目概览
+
+| 项目 | 说明 |
+| --- | --- |
+| 分类 | 教学分析与备考 |
+| 平台 | 浏览器 / TypeScript / 本地 Excel |
+| 当前定位 | 现行主项目 |
+
+将考试 Excel 转换为年级、班级、学生与知识点分析，并导出报告。
+
+[在线体验](https://yusheng266186-beep.github.io/zhiliang-huixi-new-/) · [版本与下载](https://github.com/yusheng266186-beep/zhiliang-huixi-new-/releases) · [使用与开发](#版权与使用说明) · [项目总导航](https://github.com/yusheng266186-beep/yusheng266186-beep)
+
+本库是现行质量分析项目；[质量慧析 NEXT](https://github.com/yusheng266186-beep/zhiliang-huixi-next) 是界面重构提案，有独立的预览和合并说明。学生个人报告发布见 [成绩查询](https://github.com/yusheng266186-beep/grade-query)。
+
+**阅读导航：** [版权与使用说明](#版权与使用说明) · [启动开发环境](#启动开发环境) · [数据隐私与安全](#数据隐私与安全) · [目录结构](#目录结构)
+
+<!-- project-navigation:end -->
+
 ## 项目定位
 
 质量慧析把原始考试工作簿转换为可解释的教学分析结果，适合用于：
